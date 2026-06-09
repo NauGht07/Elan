@@ -8,11 +8,18 @@ const SYSTEM_PROMPT = process.env.SYSTEM_PROMPT || "You are a helpful assistant 
 export async function POST(request: NextRequest) {
   const { topic, parent_id } = await request.json();
 
+  const template = process.env.USER_PROMPT || topic;
+
+  const data = {topic: topic, brief_list: []};
+
+  const finalString = template.replace(/{(\w+)}/g, (match: string, key: string) => data[key as keyof typeof data] ?? match);
+
+
   const completion = await groq.chat.completions.create({
-    model: "llama-3.3-70b-versatile",
+    model: "openai/gpt-oss-120b",
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: topic },
+      { role: "user", content: finalString},
     ],
   });
 

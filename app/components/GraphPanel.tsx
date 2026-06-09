@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   ReactFlow,
   Handle,
@@ -30,11 +31,14 @@ type GhostNodeData = {
 };
 
 function CircleNode({ data }: { data: CircleNodeData }) {
+  const [hovered, setHovered] = useState(false);
   return (
     <>
       <Handle type="target" position={Position.Top} style={{ opacity: 0, pointerEvents: "none" }} />
       <Handle type="source" position={Position.Bottom} style={{ opacity: 0, pointerEvents: "none" }} />
       <div
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
         style={{
           width: "100%",
           height: "100%",
@@ -44,34 +48,46 @@ function CircleNode({ data }: { data: CircleNodeData }) {
           transition: "background-color 0.15s ease, box-shadow 0.15s ease",
         }}
       />
-      <span
-        style={{
-          position: "absolute",
-          top: "100%",
-          left: "50%",
-          transform: "translateX(-50%)",
-          marginTop: 6,
-          fontSize: 10,
-          lineHeight: 1,
-          whiteSpace: "nowrap",
-          color: data.isActive ? "#a1a1aa" : "#71717a",
-          userSelect: "none",
-          pointerEvents: "none",
-          transition: "color 0.15s ease",
-        }}
-      >
-        {data.label}
-      </span>
+      {hovered && (
+        <div
+          style={{
+            position: "absolute",
+            left: "calc(100% + 10px)",
+            top: "50%",
+            transform: "translateY(-50%)",
+            backgroundColor: "#18181b",
+            border: "1px solid #3f3f46",
+            borderRadius: 6,
+            padding: "6px 10px",
+            pointerEvents: "none",
+            zIndex: 9999,
+            minWidth: 120,
+            maxWidth: 200,
+          }}
+        >
+          <div style={{ fontSize: 11, fontWeight: 600, color: "#e4e4e7", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {data.label}
+          </div>
+          {data.nodeData?.brief && (
+            <div style={{ fontSize: 10, color: "#a1a1aa", marginTop: 3, lineHeight: 1.4 }}>
+              {data.nodeData.brief}
+            </div>
+          )}
+        </div>
+      )}
     </>
   );
 }
 
 function GhostNode({ data }: { data: GhostNodeData }) {
+  const [hovered, setHovered] = useState(false);
   return (
     <>
       <Handle type="target" position={Position.Top} style={{ opacity: 0, pointerEvents: "none" }} />
       <Handle type="source" position={Position.Bottom} style={{ opacity: 0, pointerEvents: "none" }} />
       <div
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
         style={{
           width: "100%",
           height: "100%",
@@ -81,24 +97,28 @@ function GhostNode({ data }: { data: GhostNodeData }) {
           opacity: 0.5,
         }}
       />
-      <span
-        style={{
-          position: "absolute",
-          top: "100%",
-          left: "50%",
-          transform: "translateX(-50%)",
-          marginTop: 6,
-          fontSize: 10,
-          lineHeight: 1,
-          whiteSpace: "nowrap",
-          color: "#71717a",
-          opacity: 0.5,
-          userSelect: "none",
-          pointerEvents: "none",
-        }}
-      >
-        {data.label}
-      </span>
+      {hovered && (
+        <div
+          style={{
+            position: "absolute",
+            left: "calc(100% + 10px)",
+            top: "50%",
+            transform: "translateY(-50%)",
+            backgroundColor: "#18181b",
+            border: "1px solid #3f3f46",
+            borderRadius: 6,
+            padding: "6px 10px",
+            pointerEvents: "none",
+            zIndex: 9999,
+            minWidth: 100,
+            maxWidth: 180,
+          }}
+        >
+          <div style={{ fontSize: 11, fontWeight: 600, color: "#a1a1aa", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {data.label}
+          </div>
+        </div>
+      )}
     </>
   );
 }

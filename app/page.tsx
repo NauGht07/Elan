@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, type ReactNode } from "react";
+import { BlockMath, InlineMath } from "react-katex";
 import { type Node, type Edge } from "@xyflow/react";
 import GraphPanel from "./components/GraphPanel";
 
@@ -36,6 +37,92 @@ const ghostWrapperStyle = {
 
 function nodeSize(childCount: number) {
   return 10 + childCount * 2;
+}
+
+type SummarySegment =
+  | { type: "text"; content: string }
+  | { type: "inline"; math: string }
+  | { type: "block"; math: string };
+
+function parseSummaryChunk(chunk: string): SummarySegment[] {
+  const segments: SummarySegment[] = [];
+  const regex = /(\$\$[\s\S]+?\$\$|\$[^\n$][\s\S]*?\$)/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(chunk)) !== null) {
+    const before = chunk.slice(lastIndex, match.index);
+    if (before) {
+      segments.push({ type: "text", content: before });
+    }
+
+    const token = match[0];
+    if (token.startsWith("$$") && token.endsWith("$$")) {
+      segments.push({ type: "block", math: token.slice(2, -2).trim() });
+    } else {
+      segments.push({ type: "inline", math: token.slice(1, -1).trim() });
+    }
+
+    lastIndex = match.index + token.length;
+  }
+
+  const rest = chunk.slice(lastIndex);
+  if (rest) {
+    segments.push({ type: "text", content: rest });
+  }
+
+  return segments;
+}
+
+function renderSummaryChunk(chunk: string, index: number) {
+  const segments = parseSummaryChunk(chunk);
+  const hasBlock = segments.some((segment) => segment.type === "block");
+
+  if (!hasBlock) {
+    return (
+      <p key={index} className="text-sm leading-6 text-zinc-600 dark:text-zinc-400">
+        {segments.map((segment, i) => {
+          if (segment.type === "text") {
+            return <span key={i}>{segment.content}</span>;
+          }
+          return <InlineMath key={i} math={segment.math} />;
+        })}
+      </p>
+    );
+  }
+
+  const children: ReactNode[] = [];
+  let paragraphNodes: ReactNode[] = [];
+
+  const flushParagraph = () => {
+    if (paragraphNodes.length > 0) {
+      children.push(
+        <p key={`p-${children.length}`} className="text-sm leading-6 text-zinc-600 dark:text-zinc-400">
+          {paragraphNodes}
+        </p>
+      );
+      paragraphNodes = [];
+    }
+  };
+
+  segments.forEach((segment, i) => {
+    if (segment.type === "block") {
+      flushParagraph();
+      children.push(<BlockMath key={`block-${i}`} math={segment.math} />);
+    } else if (segment.type === "inline") {
+      paragraphNodes.push(<InlineMath key={`inline-${i}`} math={segment.math} />);
+    } else {
+      paragraphNodes.push(<span key={`text-${i}`}>{segment.content}</span>);
+    }
+  });
+
+  flushParagraph();
+
+  return (
+    <div key={index} className="space-y-4 text-sm leading-6 text-zinc-600 dark:text-zinc-400">
+      {children}
+    </div>
+  );
 }
 
 function makeGhosts(parentId: string, subtopics: string[]): { nodes: Node[]; edges: Edge[] } {
@@ -343,7 +430,9 @@ export default function Home() {
             <div className="flex-1 overflow-y-auto px-6 py-6 flex flex-col gap-6">
               <div className="flex flex-col gap-2">
                 <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">{activeNodeData.topic}</h1>
-                <p className="text-sm leading-6 text-zinc-600 dark:text-zinc-400">{activeNodeData.summary}</p>
+                <div className="text-sm leading-6 text-zinc-600 dark:text-zinc-400 space-y-4">
+                  {activeNodeData.summary.split("\n\n").map(renderSummaryChunk)}
+                </div>
               </div>
               <div className="flex flex-col gap-2">
                 <h3 className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">Subtopics</h3>
