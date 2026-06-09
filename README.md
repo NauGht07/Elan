@@ -1,36 +1,53 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Elan
+
+An AI-powered learning tree. Enter any topic, get an opinionated breakdown, and explore as deep as you want — every node knows exactly where you've been.
+
+## What it is
+
+Most learning tools give you information. Elan gives you a path. Enter a topic, get a summary and ranked subtopics to explore. Click into any subtopic and go deeper. The tree remembers your entire journey, so every new node is calibrated to what you've already covered.
+
+ChatGPT can explain things. It can't build a persistent map of your understanding. Elan can.
+
+## Stack
+
+- Next.js + TypeScript
+- Groq (LLaMA 3.3 70B)
+- React Flow
+- Tailwind CSS
 
 ## Getting Started
 
-First, run the development server:
+```bash
+git clone https://github.com/yourusername/elan.git
+cd elan
+npm install
+```
+
+Create a `.env.local` file:
+
+```
+GROQ_API_KEY=your_key_here
+SYSTEM_PROMPT=your_prompt_here
+```
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Status
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+MVP in progress. Core loop working — topic input, recursive tree generation, graph visualization, ancestor context chaining.
 
-## Learn More
+**Coming soon:**
 
-To learn more about Next.js, take a look at the following resources:
+- Supabase persistence
+- Chat layer per node
+- Annotations and highlights
+- Community shared trees
+- Mobile responsive
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## License
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+MIT
