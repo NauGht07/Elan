@@ -5,8 +5,6 @@ import { createClient } from "@/lib/supabase/server";
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 const SYSTEM_PROMPT = process.env.SYSTEM_PROMPT ?? "";
 
-type Source = { title: string; url: string };
-
 function parseContent(content: string): Record<string, unknown> {
   try {
     return JSON.parse(content);
@@ -19,20 +17,6 @@ function parseContent(content: string): Record<string, unknown> {
   }
 }
 
-function extractSources(message: Groq.Chat.Completions.ChatCompletionMessage): Source[] {
-  const seen = new Set<string>();
-  const sources: Source[] = [];
-  for (const tool of (message as { executed_tools?: Groq.Chat.Completions.ChatCompletionMessage.ExecutedTool[] }).executed_tools ?? []) {
-    for (const result of tool.search_results?.results ?? []) {
-      if (result.url && !seen.has(result.url)) {
-        seen.add(result.url);
-        sources.push({ title: result.title ?? result.url, url: result.url });
-      }
-    }
-  }
-  return sources;
-}
-
 export async function POST(request: NextRequest) {
   const { topic, brief_list = [] } = await request.json();
 
@@ -41,7 +25,7 @@ export async function POST(request: NextRequest) {
   if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
 
   const template = process.env.USER_PROMPT ?? topic;
-  const briefs: string[] = Array.isArray(brief_list) ? brief_list : [];
+  const briefs: string[] = (Array.isArray(brief_list) ? brief_list : []).slice(-8);
   const promptData = { topic, brief_list: briefs.length > 0 ? briefs.join("\n- ") : "" };
   const userMessage = template.replace(
     /{(\w+)}/g,
@@ -49,19 +33,19 @@ export async function POST(request: NextRequest) {
   );
 
   const completion = await groq.chat.completions.create({
-    model: "compound-beta",
-    compound_custom: {
-      models: { answering_model: "openai/gpt-oss-120b" },
-      tools: { enabled_tools: ["web_search"] },
-    },
+    model: "llama-3.3-70b-versatile",
+    response_format: { type: "json_object" },
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: userMessage },
     ],
   });
 
-  const message = completion.choices[0].message;
-  const nodeData = parseContent(message.content ?? "{}");
-  const sources = extractSources(message);
-  return Response.json({ ...nodeData, sources });
+  const raw = parseContent(completion.choices[0].message.content ?? "{}") as { topic?: string; summary?: string; brief?: string; subtopics?: string[] };
+  return Response.json({
+    topic: raw.topic ?? "",
+    summary: raw.summary ?? "",
+    brief: raw.brief ?? "",
+    subtopics: raw.subtopics ?? [],
+  });
 }

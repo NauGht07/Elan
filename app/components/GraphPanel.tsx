@@ -11,18 +11,34 @@ import {
   type NodeMouseHandler,
 } from "@xyflow/react";
 
+const KEYFRAMES = `
+  @keyframes nodeEnter {
+    from { opacity: 0; transform: scale(0); }
+    to   { opacity: 1; transform: scale(1); }
+  }
+`;
+
+const CENTER_HANDLE: React.CSSProperties = {
+  opacity: 0,
+  pointerEvents: "none",
+  top: "50%",
+  left: "50%",
+  transform: "translate(-50%, -50%)",
+};
+
 type NodeData = {
   topic: string;
   summary: string;
   brief: string;
   subtopics: string[];
-  sources?: { title: string; url: string }[];
 };
 
 type CircleNodeData = {
   label: string;
   size: number;
+  isRoot: boolean;
   isActive: boolean;
+  depth: number;
   nodeData: NodeData;
 };
 
@@ -30,14 +46,17 @@ type GhostNodeData = {
   label: string;
   parentId: string;
   isPending?: boolean;
+  depth: number;
 };
 
 function CircleNode({ data }: { data: CircleNodeData }) {
   const [hovered, setHovered] = useState(false);
+  const delay = `${(data.depth ?? 0) * 0.07}s`;
   return (
     <>
-      <Handle type="target" position={Position.Top} style={{ opacity: 0, pointerEvents: "none" }} />
-      <Handle type="source" position={Position.Bottom} style={{ opacity: 0, pointerEvents: "none" }} />
+      <style>{KEYFRAMES}</style>
+      <Handle type="target" position={Position.Top} style={CENTER_HANDLE} />
+      <Handle type="source" position={Position.Bottom} style={CENTER_HANDLE} />
       <div
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
@@ -45,9 +64,11 @@ function CircleNode({ data }: { data: CircleNodeData }) {
           width: "100%",
           height: "100%",
           borderRadius: "50%",
-          backgroundColor: data.isActive ? "#a78bfa" : "#7c6ff7",
-          boxShadow: data.isActive ? "0 0 0 3px rgba(167, 139, 250, 0.35)" : "none",
-          transition: "background-color 0.15s ease, box-shadow 0.15s ease",
+          backgroundColor: data.isRoot ? "#a78bfa" : data.isActive ? "#a78bfa" : "#7c6ff7",
+          boxShadow: data.isRoot
+            ? "0 0 0 3px rgba(167, 139, 250, 0.4), 0 0 12px rgba(167, 139, 250, 0.3)"
+            : data.isActive ? "0 0 0 3px rgba(167, 139, 250, 0.35)" : "none",
+          animation: `nodeEnter 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) ${delay} both`,
         }}
       />
       {hovered && (
@@ -84,11 +105,12 @@ function CircleNode({ data }: { data: CircleNodeData }) {
 function GhostNode({ data }: { data: GhostNodeData }) {
   const [hovered, setHovered] = useState(false);
   const isPending = !!data.isPending;
-
+  const delay = `${(data.depth ?? 1) * 0.07}s`;
   return (
     <>
-      <Handle type="target" position={Position.Top} style={{ opacity: 0, pointerEvents: "none" }} />
-      <Handle type="source" position={Position.Bottom} style={{ opacity: 0, pointerEvents: "none" }} />
+      <style>{KEYFRAMES}</style>
+      <Handle type="target" position={Position.Top} style={CENTER_HANDLE} />
+      <Handle type="source" position={Position.Bottom} style={CENTER_HANDLE} />
       <div
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
@@ -100,7 +122,7 @@ function GhostNode({ data }: { data: GhostNodeData }) {
           border: isPending ? "1.5px solid #a78bfa" : "1.5px dashed #71717a",
           boxShadow: isPending ? "0 0 0 3px rgba(167, 139, 250, 0.2)" : "none",
           opacity: isPending ? 1 : 0.5,
-          transition: "all 0.15s ease",
+          animation: `nodeEnter 0.4s ease ${delay} both`,
         }}
       />
       {(hovered || isPending) && (
@@ -141,7 +163,7 @@ const nodeTypes: NodeTypes = {
 
 const defaultEdgeOptions = {
   type: "straight",
-  style: { stroke: "#71717a", strokeWidth: 1 },
+  style: { stroke: "#52525b", strokeWidth: 1 },
 };
 
 export default function GraphPanel({
@@ -168,7 +190,7 @@ export default function GraphPanel({
   };
 
   return (
-    <div style={{ flex: 1, width: "100%" }}>
+    <div style={{ width: "100%", height: "100%" }}>
       <ReactFlow
         nodes={augmentedNodes}
         edges={edges}

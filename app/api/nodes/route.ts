@@ -5,8 +5,6 @@ import { createClient } from "@/lib/supabase/server";
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 const SYSTEM_PROMPT = process.env.SYSTEM_PROMPT ?? "";
 
-type Source = { title: string; url: string };
-
 function parseContent(content: string): Record<string, unknown> {
   try {
     return JSON.parse(content);
@@ -17,20 +15,6 @@ function parseContent(content: string): Record<string, unknown> {
     }
     return {};
   }
-}
-
-function extractSources(message: Groq.Chat.Completions.ChatCompletionMessage): Source[] {
-  const seen = new Set<string>();
-  const sources: Source[] = [];
-  for (const tool of (message as { executed_tools?: Groq.Chat.Completions.ChatCompletionMessage.ExecutedTool[] }).executed_tools ?? []) {
-    for (const result of tool.search_results?.results ?? []) {
-      if (result.url && !seen.has(result.url)) {
-        seen.add(result.url);
-        sources.push({ title: result.title ?? result.url, url: result.url });
-      }
-    }
-  }
-  return sources;
 }
 
 export async function GET(request: NextRequest) {
@@ -64,13 +48,19 @@ export async function POST(request: NextRequest) {
     .eq("id", parent_id)
     .single();
 
-  let nodeData: { topic: string; summary: string; brief: string; subtopics: string[]; sources?: Source[] };
+  let nodeData: { topic: string; summary: string; brief: string; subtopics: string[] };
 
   if (preGenerated) {
-    nodeData = preGenerated;
+    const p = preGenerated as { topic?: string; summary?: string; brief?: string; subtopics?: string[] };
+    nodeData = {
+      topic: p.topic ?? "",
+      summary: p.summary ?? "",
+      brief: p.brief ?? "",
+      subtopics: p.subtopics ?? [],
+    };
   } else {
     const template = process.env.USER_PROMPT ?? topic;
-    const briefs: string[] = Array.isArray(brief_list) ? brief_list : [];
+    const briefs: string[] = (Array.isArray(brief_list) ? brief_list : []).slice(-8);
     const promptData = { topic, brief_list: briefs.length > 0 ? briefs.join("\n- ") : "" };
     const userMessage = template.replace(
       /{(\w+)}/g,
@@ -78,19 +68,21 @@ export async function POST(request: NextRequest) {
     );
 
     const completion = await groq.chat.completions.create({
-      model: "compound-beta",
-      compound_custom: {
-        models: { answering_model: "openai/gpt-oss-120b" },
-        tools: { enabled_tools: ["web_search"] },
-      },
+      model: "llama-3.3-70b-versatile",
+      response_format: { type: "json_object" },
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: userMessage },
       ],
     });
 
-    const message = completion.choices[0].message;
-    nodeData = { ...parseContent(message.content ?? "{}") as typeof nodeData, sources: extractSources(message) };
+    const raw = parseContent(completion.choices[0].message.content ?? "{}") as { topic?: string; summary?: string; brief?: string; subtopics?: string[] };
+    nodeData = {
+      topic: raw.topic ?? "",
+      summary: raw.summary ?? "",
+      brief: raw.brief ?? "",
+      subtopics: raw.subtopics ?? [],
+    };
   }
 
   const ancestorIds: string[] = parentNode
@@ -107,7 +99,6 @@ export async function POST(request: NextRequest) {
       summary: nodeData.summary,
       brief: nodeData.brief,
       subtopics: nodeData.subtopics,
-      sources: nodeData.sources ?? [],
       ancestor_ids: ancestorIds,
       depth,
     })

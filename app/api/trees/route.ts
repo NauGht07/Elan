@@ -5,8 +5,6 @@ import { createClient } from "@/lib/supabase/server";
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 const SYSTEM_PROMPT = process.env.SYSTEM_PROMPT ?? "";
 
-type Source = { title: string; url: string };
-
 function parseContent(content: string): Record<string, unknown> {
   try {
     return JSON.parse(content);
@@ -17,20 +15,6 @@ function parseContent(content: string): Record<string, unknown> {
     }
     return {};
   }
-}
-
-function extractSources(message: Groq.Chat.Completions.ChatCompletionMessage): Source[] {
-  const seen = new Set<string>();
-  const sources: Source[] = [];
-  for (const tool of (message as { executed_tools?: Groq.Chat.Completions.ChatCompletionMessage.ExecutedTool[] }).executed_tools ?? []) {
-    for (const result of tool.search_results?.results ?? []) {
-      if (result.url && !seen.has(result.url)) {
-        seen.add(result.url);
-        sources.push({ title: result.title ?? result.url, url: result.url });
-      }
-    }
-  }
-  return sources;
 }
 
 export async function GET() {
@@ -63,24 +47,23 @@ export async function POST(request: NextRequest) {
   );
 
   const completion = await groq.chat.completions.create({
-    model: "compound-beta",
-    compound_custom: {
-      models: { answering_model: "openai/gpt-oss-120b" },
-      tools: { enabled_tools: ["web_search"] },
-    },
+    model: "llama-3.3-70b-versatile",
+    response_format: { type: "json_object" },
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: userMessage },
     ],
   });
 
-  const message = completion.choices[0].message;
-  const nodeData = parseContent(message.content ?? "{}");
-  const sources = extractSources(message);
+  const raw = parseContent(completion.choices[0].message.content ?? "{}") as { topic?: string; summary?: string; brief?: string; subtopics?: string[] };
+  const nodeTopic = raw.topic ?? "";
+  const nodeSummary = raw.summary ?? "";
+  const nodeBrief = raw.brief ?? "";
+  const nodeSubtopics = raw.subtopics ?? [];
 
   const { data: tree, error: treeError } = await supabase
     .from("trees")
-    .insert({ user_id: user.id, topic: nodeData.topic })
+    .insert({ user_id: user.id, topic: nodeTopic })
     .select("id")
     .single();
 
@@ -91,11 +74,10 @@ export async function POST(request: NextRequest) {
     .insert({
       tree_id: tree.id,
       parent_id: null,
-      topic: nodeData.topic,
-      summary: nodeData.summary,
-      brief: nodeData.brief,
-      subtopics: nodeData.subtopics,
-      sources,
+      topic: nodeTopic,
+      summary: nodeSummary,
+      brief: nodeBrief,
+      subtopics: nodeSubtopics,
       ancestor_ids: [],
       depth: 0,
     })
@@ -104,5 +86,5 @@ export async function POST(request: NextRequest) {
 
   if (nodeError) return Response.json({ error: nodeError.message }, { status: 500 });
 
-  return Response.json({ ...nodeData, sources, tree_id: tree.id, node_id: node.id });
+  return Response.json({ topic: nodeTopic, summary: nodeSummary, brief: nodeBrief, subtopics: nodeSubtopics, tree_id: tree.id, node_id: node.id });
 }

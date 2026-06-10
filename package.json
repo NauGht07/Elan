@@ -11,7 +11,9 @@
   "dependencies": {
     "@supabase/ssr": "^0.12.0",
     "@supabase/supabase-js": "^2.108.1",
+    "@types/d3-force": "^3.0.10",
     "@xyflow/react": "^12.11.0",
+    "d3-force": "^3.0.0",
     "groq-sdk": "^1.2.1",
     "katex": "^0.17.0",
     "next": "16.2.7",

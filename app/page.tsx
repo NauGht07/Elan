@@ -6,19 +6,17 @@ import { type Node, type Edge } from "@xyflow/react";
 import GraphPanel from "./components/GraphPanel";
 import { logout } from "./actions/auth";
 
-type Source = { title: string; url: string };
-
 type NodeData = {
   topic: string;
   summary: string;
   brief: string;
   subtopics: string[];
-  sources?: Source[];
 };
 
 type GhostNodeData = {
   label: string;
   parentId: string;
+  depth: number;
 };
 
 type TreeRecord = {
@@ -35,7 +33,6 @@ type DBNode = {
   summary: string;
   brief: string;
   subtopics: string[];
-  sources?: Source[];
   ancestor_ids: string[];
   depth: number;
 };
@@ -45,6 +42,8 @@ type PreviewState =
   | { status: "ready"; subtopic: string; parentId: string; nodeData: NodeData; ghostNodeId: string | null };
 
 const GHOST_SIZE = 12;
+const CIRCLE_SIZE = 14;
+const ROOT_SIZE = 20;
 
 const nodeWrapperStyle = (size: number) => ({
   background: "transparent",
@@ -62,55 +61,73 @@ const ghostWrapperStyle = {
   height: GHOST_SIZE,
 };
 
-function nodeSize(childCount: number) {
-  return 10 + childCount * 2;
-}
-
-function layoutTree(nodes: Node[], edges: Edge[]): Node[] {
+function layoutRadial(nodes: Node[], edges: Edge[]): Node[] {
   if (nodes.length === 0) return nodes;
 
-  const childMap: Record<string, string[]> = {};
+  // Build adjacency for circle nodes only
+  const children: Record<string, string[]> = {};
   const hasParent = new Set<string>();
-
-  for (const n of nodes) childMap[n.id] = [];
+  for (const n of nodes) if (n.type === "circle") children[n.id] = [];
   for (const e of edges) {
-    childMap[e.source]?.push(e.target);
-    hasParent.add(e.target);
-  }
-
-  const root = nodes.find((n) => !hasParent.has(n.id));
-  if (!root) return nodes;
-
-  const depth: Record<string, number> = { [root.id]: 0 };
-  const queue: string[] = [root.id];
-  while (queue.length) {
-    const id = queue.shift()!;
-    for (const child of childMap[id] ?? []) {
-      depth[child] = depth[id] + 1;
-      queue.push(child);
+    const s = nodes.find((n) => n.id === e.source);
+    const t = nodes.find((n) => n.id === e.target);
+    if (s?.type === "circle" && t?.type === "circle") {
+      children[e.source]?.push(e.target);
+      hasParent.add(e.target);
     }
   }
 
-  const levels: Record<number, string[]> = {};
-  for (const [id, d] of Object.entries(depth)) {
-    (levels[d] ??= []).push(id);
+  const root = nodes.find((n) => n.type === "circle" && !hasParent.has(n.id));
+  if (!root) return nodes;
+
+  const pos: Record<string, { x: number; y: number }> = { [root.id]: { x: 0, y: 0 } };
+  const STEP = 160;
+
+  // Subtree leaf count for proportional angle allocation
+  const leafCount: Record<string, number> = {};
+  function count(id: string): number {
+    const ch = children[id] ?? [];
+    leafCount[id] = ch.length === 0 ? 1 : ch.reduce((s, c) => s + count(c), 0);
+    return leafCount[id];
+  }
+  count(root.id);
+
+  // Recursively place children in the angular wedge [a0, a1]
+  function place(id: string, a0: number, a1: number, d: number) {
+    const ch = children[id] ?? [];
+    if (!ch.length) return;
+    const total = ch.reduce((s, c) => s + (leafCount[c] ?? 1), 0);
+    let a = a0;
+    for (const cid of ch) {
+      const span = ((leafCount[cid] ?? 1) / total) * (a1 - a0);
+      const mid = a + span / 2;
+      pos[cid] = { x: (d + 1) * STEP * Math.cos(mid), y: (d + 1) * STEP * Math.sin(mid) };
+      place(cid, a, a + span, d + 1);
+      a += span;
+    }
   }
 
-  const X_GAP = 140;
-  const Y_GAP = 120;
-  const positions: Record<string, { x: number; y: number }> = {};
+  place(root.id, -Math.PI / 2, (3 * Math.PI) / 2, 0);
 
-  for (const [dStr, ids] of Object.entries(levels)) {
-    const d = Number(dStr);
-    ids.forEach((id, i) => {
-      positions[id] = {
-        x: (i - (ids.length - 1) / 2) * X_GAP,
-        y: d * Y_GAP,
-      };
+  // Place ghost nodes in a ring around their parent
+  const ghostsByParent: Record<string, string[]> = {};
+  for (const n of nodes) {
+    if (n.type === "ghost") {
+      const d = n.data as unknown as GhostNodeData;
+      (ghostsByParent[d.parentId] ??= []).push(n.id);
+    }
+  }
+  const GHOST_R = 52;
+  for (const [pid, gids] of Object.entries(ghostsByParent)) {
+    const pp = pos[pid] ?? { x: 0, y: 0 };
+    const outward = pp.x === 0 && pp.y === 0 ? -Math.PI / 2 : Math.atan2(pp.y, pp.x);
+    gids.forEach((gid, i) => {
+      const angle = outward + (2 * Math.PI * i) / gids.length;
+      pos[gid] = { x: pp.x + GHOST_R * Math.cos(angle), y: pp.y + GHOST_R * Math.sin(angle) };
     });
   }
 
-  return nodes.map((n) => ({ ...n, position: positions[n.id] ?? n.position }));
+  return nodes.map((n) => ({ ...n, position: pos[n.id] ?? n.position }));
 }
 
 type SummarySegment =
@@ -190,14 +207,14 @@ function renderSummaryChunk(chunk: string, index: number) {
   );
 }
 
-function makeGhosts(parentId: string, subtopics: string[]): { nodes: Node[]; edges: Edge[] } {
+function makeGhosts(parentId: string, subtopics: string[], parentDepth: number): { nodes: Node[]; edges: Edge[] } {
   const nodes: Node[] = subtopics.map((sub, i) => ({
     id: `ghost-${parentId}-${i}`,
     type: "ghost",
     position: { x: 0, y: 0 },
     width: GHOST_SIZE,
     height: GHOST_SIZE,
-    data: { label: sub, parentId } as unknown as Record<string, unknown>,
+    data: { label: sub, parentId, depth: parentDepth + 1 } as unknown as Record<string, unknown>,
     style: ghostWrapperStyle,
   }));
   const edges: Edge[] = nodes.map((gn) => ({
@@ -208,7 +225,6 @@ function makeGhosts(parentId: string, subtopics: string[]): { nodes: Node[]; edg
   }));
   return { nodes, edges };
 }
-
 
 function reconstructGraph(dbNodes: DBNode[]): { nodes: Node[]; edges: Edge[] } {
   const childrenByParent: Record<string, DBNode[]> = {};
@@ -222,7 +238,8 @@ function reconstructGraph(dbNodes: DBNode[]): { nodes: Node[]; edges: Edge[] } {
   const allEdges: Edge[] = [];
 
   for (const dbNode of dbNodes) {
-    const size = nodeSize(dbNode.subtopics.length);
+    const isRoot = dbNode.parent_id === null;
+    const size = isRoot ? ROOT_SIZE : CIRCLE_SIZE;
     allNodes.push({
       id: dbNode.id,
       type: "circle",
@@ -232,12 +249,13 @@ function reconstructGraph(dbNodes: DBNode[]): { nodes: Node[]; edges: Edge[] } {
       data: {
         label: dbNode.topic,
         size,
+        isRoot,
+        depth: dbNode.depth,
         nodeData: {
           topic: dbNode.topic,
           summary: dbNode.summary,
           brief: dbNode.brief,
           subtopics: dbNode.subtopics,
-          sources: dbNode.sources ?? [],
         },
       },
       style: nodeWrapperStyle(size),
@@ -258,46 +276,13 @@ function reconstructGraph(dbNodes: DBNode[]): { nodes: Node[]; edges: Edge[] } {
     const unexplored = dbNode.subtopics.filter(
       (sub) => !exploredLabels.has(sub.toLowerCase())
     );
-    const { nodes: ghostNodes, edges: ghostEdges } = makeGhosts(dbNode.id, unexplored);
+    const { nodes: ghostNodes, edges: ghostEdges } = makeGhosts(dbNode.id, unexplored, dbNode.depth);
     allNodes.push(...ghostNodes);
     allEdges.push(...ghostEdges);
   }
 
-  const laid = layoutTree(allNodes, allEdges);
+  const laid = layoutRadial(allNodes, allEdges);
   return { nodes: laid, edges: allEdges };
-}
-
-const MIN_PANEL = 160;
-
-function useResize(initialPx: number) {
-  const [width, setWidth] = useState(initialPx);
-  const dragging = useRef(false);
-  const startX = useRef(0);
-  const startW = useRef(0);
-
-  const onMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      dragging.current = true;
-      startX.current = e.clientX;
-      startW.current = width;
-      e.preventDefault();
-
-      function onMove(ev: MouseEvent) {
-        if (!dragging.current) return;
-        setWidth(Math.max(MIN_PANEL, startW.current + (ev.clientX - startX.current)));
-      }
-      function onUp() {
-        dragging.current = false;
-        window.removeEventListener("mousemove", onMove);
-        window.removeEventListener("mouseup", onUp);
-      }
-      window.addEventListener("mousemove", onMove);
-      window.addEventListener("mouseup", onUp);
-    },
-    [width]
-  );
-
-  return { width, onMouseDown };
 }
 
 export default function Home() {
@@ -313,8 +298,8 @@ export default function Home() {
   const [disambiguationOptions, setDisambiguationOptions] = useState<
     { label: string; description: string }[] | null
   >(null);
-  const leftResize = useResize(256);
-  const rightResize = useResize(320);
+
+  const [sidebarHovered, setSidebarHovered] = useState(false);
 
   const [graphNodes, setGraphNodes] = useState<Node[]>([]);
   const [graphEdges, setGraphEdges] = useState<Edge[]>([]);
@@ -323,6 +308,9 @@ export default function Home() {
   const [isExpanding, setIsExpanding] = useState(false);
   const [previewState, setPreviewState] = useState<PreviewState | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  const drawerOpen = previewState !== null || activeNodeData !== null;
+
 
   useEffect(() => {
     fetch("/api/trees")
@@ -358,7 +346,6 @@ export default function Home() {
           summary: root.summary,
           brief: root.brief,
           subtopics: root.subtopics,
-          sources: root.sources ?? [],
         });
         setActiveNodeId(root.id);
       }
@@ -401,8 +388,7 @@ export default function Home() {
       return;
     }
     const raw = (await res.json()) as NodeData & { tree_id: string; node_id: string };
-    const { tree_id, node_id, sources, ...rest } = raw;
-    const nodeData: NodeData = { ...rest, sources: sources ?? [] };
+    const { tree_id, node_id, ...nodeData } = raw;
 
     setTrees((prev) => [
       { id: tree_id, topic: nodeData.topic, created_at: new Date().toISOString() },
@@ -410,21 +396,20 @@ export default function Home() {
     ]);
     setActiveTreeId(tree_id);
 
-    const size = nodeSize(nodeData.subtopics.length);
     const rootNode: Node = {
       id: node_id,
       type: "circle",
       position: { x: 0, y: 0 },
-      width: size,
-      height: size,
-      data: { label: nodeData.topic, size, nodeData },
-      style: nodeWrapperStyle(size),
+      width: ROOT_SIZE,
+      height: ROOT_SIZE,
+      data: { label: nodeData.topic, size: ROOT_SIZE, isRoot: true, depth: 0, nodeData },
+      style: nodeWrapperStyle(ROOT_SIZE),
     };
 
-    const { nodes: ghostNodes, edges: ghostEdges } = makeGhosts(node_id, nodeData.subtopics);
+    const { nodes: ghostNodes, edges: ghostEdges } = makeGhosts(node_id, nodeData.subtopics, 0);
     const allNodes = [rootNode, ...ghostNodes];
 
-    setGraphNodes(layoutTree(allNodes, ghostEdges));
+    setGraphNodes(layoutRadial(allNodes, ghostEdges));
     setGraphEdges(ghostEdges);
     setActiveNodeData(nodeData);
     setActiveNodeId(node_id);
@@ -504,18 +489,20 @@ export default function Home() {
 
       const { node_id: newId } = await res.json();
 
-      const size = nodeSize(nodeData.subtopics.length);
+      const parentDepth = ((graphNodes.find((n) => n.id === parentId)?.data as { depth?: number })?.depth) ?? 0;
+      const newDepth = parentDepth + 1;
+
       const newNode: Node = {
         id: newId,
         type: "circle",
         position: { x: 0, y: 0 },
-        width: size,
-        height: size,
-        data: { label: nodeData.topic, size, nodeData },
-        style: nodeWrapperStyle(size),
+        width: CIRCLE_SIZE,
+        height: CIRCLE_SIZE,
+        data: { label: nodeData.topic, size: CIRCLE_SIZE, depth: newDepth, nodeData },
+        style: nodeWrapperStyle(CIRCLE_SIZE),
       };
 
-      const { nodes: newGhostNodes, edges: newGhostEdges } = makeGhosts(newId, nodeData.subtopics);
+      const { nodes: newGhostNodes, edges: newGhostEdges } = makeGhosts(newId, nodeData.subtopics, newDepth);
       const realEdge: Edge = {
         id: `edge-${parentId}-${newId}`,
         source: parentId,
@@ -537,7 +524,7 @@ export default function Home() {
       const updatedNodes = [...baseNodes, newNode, ...newGhostNodes];
       const updatedEdges = [...baseEdges, realEdge, ...newGhostEdges];
 
-      setGraphNodes(layoutTree(updatedNodes, updatedEdges));
+      setGraphNodes(layoutRadial(updatedNodes, updatedEdges));
       setGraphEdges(updatedEdges);
       setActiveNodeData(nodeData);
       setActiveNodeId(newId);
@@ -565,6 +552,13 @@ export default function Home() {
     startPreview(subtopic, activeNodeId);
   }
 
+  function handleDismissDrawer() {
+    abortRef.current?.abort();
+    setPreviewState(null);
+    setActiveNodeData(null);
+    setActiveNodeId(null);
+  }
+
   function handleGraphNodeClick(id: string, nodeType: string, data: Record<string, unknown>) {
     if (nodeType === "circle") {
       abortRef.current?.abort();
@@ -584,8 +578,9 @@ export default function Home() {
 
   return (
     <>
+      {/* Error toast */}
       {apiError && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-3 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-sm px-4 py-2.5 rounded-lg shadow-lg">
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-sm px-4 py-2.5 rounded-lg shadow-lg">
           <span>{apiError}</span>
           <button
             onClick={() => setApiError(null)}
@@ -597,245 +592,193 @@ export default function Home() {
           </button>
         </div>
       )}
-      <div className="flex h-screen overflow-hidden bg-zinc-100 dark:bg-zinc-900">
-        {/* Left panel — tree list */}
-        <aside
-          style={{ width: leftResize.width, minWidth: MIN_PANEL }}
-          className="flex-shrink-0 flex flex-col bg-white dark:bg-zinc-800"
-        >
-          <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-200 dark:border-zinc-700">
-            <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-200 uppercase tracking-wider">
-              Topics
-            </h2>
-            <button
-              onClick={() => { setShowModal(true); setApiError(null); }}
-              className="flex items-center justify-center w-6 h-6 rounded hover:bg-zinc-100 dark:hover:bg-zinc-700 text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
-                <path d="M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5v-3.5Z" />
-              </svg>
-            </button>
-          </div>
 
-          <ul className="flex-1 overflow-y-auto py-2">
-            {isLoadingTrees ? (
-              <li className="px-4 py-3 text-xs text-zinc-400 dark:text-zinc-500">Loading…</li>
-            ) : trees.length === 0 ? (
-              <li className="px-4 py-3 text-xs text-zinc-400 dark:text-zinc-500">
-                No topics yet. Hit + to add one.
-              </li>
-            ) : (
-              trees.map((tree) => (
-                <li key={tree.id}>
-                  <button
-                    onClick={() => handleTreeSelect(tree)}
-                    className={`w-full text-left px-4 py-2 text-sm transition-colors ${
-                      activeTreeId === tree.id
-                        ? "bg-zinc-100 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 font-medium"
-                        : "text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700 hover:text-zinc-900 dark:hover:text-zinc-100"
-                    }`}
-                  >
-                    {tree.topic}
-                  </button>
-                </li>
-              ))
-            )}
-          </ul>
-
-          <div className="px-3 py-3 border-t border-zinc-200 dark:border-zinc-700">
-            <form action={logout}>
-              <button
-                type="submit"
-                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-700 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5 flex-shrink-0">
-                  <path fillRule="evenodd" d="M2 4.75A2.75 2.75 0 0 1 4.75 2h3a2.75 2.75 0 0 1 2.75 2.75v.5a.75.75 0 0 1-1.5 0v-.5c0-.69-.56-1.25-1.25-1.25h-3C4.06 3.5 3.5 4.06 3.5 4.75v6.5c0 .69.56 1.25 1.25 1.25h3c.69 0 1.25-.56 1.25-1.25v-.5a.75.75 0 0 1 1.5 0v.5A2.75 2.75 0 0 1 7.75 14h-3A2.75 2.75 0 0 1 2 11.25v-6.5Zm9.47.47a.75.75 0 0 1 1.06 0l2.25 2.25a.75.75 0 0 1 0 1.06l-2.25 2.25a.75.75 0 1 1-1.06-1.06l.97-.97H6.75a.75.75 0 0 1 0-1.5h5.69l-.97-.97a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
-                </svg>
-                Sign out
-              </button>
-            </form>
-          </div>
-        </aside>
-
-        {/* Resize handle: left | center */}
-        <div
-          onMouseDown={leftResize.onMouseDown}
-          className="w-1 flex-shrink-0 cursor-col-resize bg-zinc-200 dark:bg-zinc-700 hover:bg-blue-400 dark:hover:bg-blue-500 transition-colors"
+      {/* Graph — full screen */}
+      <div className="fixed inset-0 bg-zinc-50 dark:bg-zinc-900">
+        <GraphPanel
+          nodes={graphNodes}
+          edges={graphEdges}
+          activeNodeId={activeNodeId}
+          pendingGhostId={previewState?.ghostNodeId ?? null}
+          onNodeClick={handleGraphNodeClick}
         />
+      </div>
 
-        {/* Center panel — node content */}
-        <main
-          className="flex-1 flex flex-col bg-white dark:bg-zinc-800 overflow-hidden"
-          style={{ minWidth: MIN_PANEL }}
-        >
-          <div className="px-4 py-3 border-b border-zinc-200 dark:border-zinc-700">
-            <h2 className="text-sm font-medium text-zinc-400 dark:text-zinc-500 truncate">
-              {previewState ? (
-                previewState.subtopic
-              ) : activeNodeData ? (
-                activeNodeData.topic
-              ) : (
-                <span className="font-normal">No node selected</span>
+      {/* Graph loading overlay */}
+      {isLoadingGraph && (
+        <div className="fixed inset-0 z-10 flex items-center justify-center pointer-events-none">
+          <span className="text-sm text-zinc-500 dark:text-zinc-400 bg-white/90 dark:bg-zinc-900/90 backdrop-blur-sm px-4 py-2 rounded-lg border border-zinc-200 dark:border-zinc-700">
+            Loading…
+          </span>
+        </div>
+      )}
+
+      {/* Left sidebar */}
+      <aside
+        onMouseEnter={() => setSidebarHovered(true)}
+        onMouseLeave={() => setSidebarHovered(false)}
+        className={`fixed left-0 top-0 h-screen z-30 flex flex-col bg-white/95 dark:bg-zinc-900/95 backdrop-blur-sm border-r border-zinc-200 dark:border-zinc-800 transition-[width] duration-200 ease-in-out overflow-hidden ${
+          sidebarHovered ? "w-64" : "w-12"
+        }`}
+      >
+        {/* Add button */}
+        <div className="h-12 flex-shrink-0 flex items-center border-b border-zinc-200 dark:border-zinc-800">
+          <button
+            onClick={() => { setSidebarHovered(false); setShowModal(true); setApiError(null); }}
+            className="w-12 h-12 flex items-center justify-center flex-shrink-0 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors"
+            title="Add topic"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+              <path d="M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5v-3.5Z" />
+            </svg>
+          </button>
+          {sidebarHovered && (
+            <span className="text-xs font-semibold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider whitespace-nowrap select-none">
+              Topics
+            </span>
+          )}
+        </div>
+
+        {/* Topic list */}
+        <ul className="flex-1 overflow-y-auto py-1">
+          {isLoadingTrees ? (
+            <li className="h-9 flex items-center px-3">
+              {sidebarHovered && <span className="text-xs text-zinc-400 dark:text-zinc-500">Loading…</span>}
+            </li>
+          ) : trees.length === 0 ? (
+            <li className="h-9 flex items-center px-3">
+              {sidebarHovered && (
+                <span className="text-xs text-zinc-400 dark:text-zinc-500 whitespace-nowrap">No topics yet.</span>
               )}
-            </h2>
-          </div>
-
-          {isLoadingGraph ? (
-            <div className="flex-1 flex items-center justify-center text-zinc-400 dark:text-zinc-600 text-sm select-none">
-              Loading…
-            </div>
-          ) : previewState?.status === "loading" ? (
-            <div className="flex-1 overflow-y-auto px-6 py-6 flex flex-col gap-6">
-              <div className="flex flex-col gap-3">
-                <div className="h-7 w-2/3 bg-zinc-200 dark:bg-zinc-700 rounded-md animate-pulse" />
-                <div className="space-y-2 mt-1">
-                  <div className="h-4 bg-zinc-200 dark:bg-zinc-700 rounded animate-pulse" />
-                  <div className="h-4 bg-zinc-200 dark:bg-zinc-700 rounded animate-pulse w-11/12" />
-                  <div className="h-4 bg-zinc-200 dark:bg-zinc-700 rounded animate-pulse w-5/6" />
-                  <div className="h-4 bg-zinc-200 dark:bg-zinc-700 rounded animate-pulse w-4/6" />
-                </div>
-              </div>
-            </div>
-          ) : previewState?.status === "ready" ? (
-            <div className="flex-1 flex flex-col overflow-hidden">
-              <div className="flex-1 overflow-y-auto px-6 py-6 flex flex-col gap-6">
-                <div className="flex flex-col gap-2">
-                  <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">
-                    {previewState.nodeData.topic}
-                  </h1>
-                  <div className="text-sm leading-6 text-zinc-800 dark:text-zinc-200 space-y-4">
-                    {previewState.nodeData.summary.split("\n\n").map(renderSummaryChunk)}
-                  </div>
-                </div>
-                {(previewState.nodeData.sources?.length ?? 0) > 0 && (
-                  <div className="flex flex-col gap-2">
-                    <h3 className="text-xs font-semibold text-zinc-400 dark:text-zinc-600 uppercase tracking-wider">
-                      Sources
-                    </h3>
-                    <ul className="flex flex-col gap-1">
-                      {previewState.nodeData.sources!.map((src, i) => (
-                        <li key={i}>
-                          <a
-                            href={src.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-1.5 text-sm text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300 hover:underline transition-colors truncate"
-                          >
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 flex-shrink-0 opacity-60">
-                              <path d="M6.22 8.72a.75.75 0 0 0 1.06 1.06l5.22-5.22v1.69a.75.75 0 0 0 1.5 0v-3.5a.75.75 0 0 0-.75-.75h-3.5a.75.75 0 0 0 0 1.5h1.69L6.22 8.72Z" />
-                              <path d="M3.5 6.75c0-.69.56-1.25 1.25-1.25H7A.75.75 0 0 0 7 4H4.75A2.75 2.75 0 0 0 2 6.75v4.5A2.75 2.75 0 0 0 4.75 14h4.5A2.75 2.75 0 0 0 12 11.25V9a.75.75 0 0 0-1.5 0v2.25c0 .69-.56 1.25-1.25 1.25h-4.5c-.69 0-1.25-.56-1.25-1.25v-4.5Z" />
-                            </svg>
-                            <span className="truncate">{src.title}</span>
-                          </a>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-              <div className="px-6 py-4 border-t border-zinc-200 dark:border-zinc-700 flex-shrink-0">
+            </li>
+          ) : (
+            trees.map((tree) => (
+              <li key={tree.id}>
                 <button
-                  onClick={handleAddToGraph}
-                  disabled={isExpanding}
-                  className="w-full px-4 py-2.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={() => handleTreeSelect(tree)}
+                  className={`w-full flex items-center gap-3 h-9 px-3 transition-colors ${
+                    activeTreeId === tree.id
+                      ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100"
+                      : "text-zinc-500 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800/60 hover:text-zinc-800 dark:hover:text-zinc-200"
+                  }`}
                 >
-                  {isExpanding ? "Adding…" : "Add to Graph"}
+                  <div
+                    className={`w-1.5 h-1.5 rounded-full flex-shrink-0 transition-colors ${
+                      activeTreeId === tree.id ? "bg-violet-500" : "bg-zinc-300 dark:bg-zinc-600"
+                    }`}
+                  />
+                  {sidebarHovered && (
+                    <span className="text-sm truncate whitespace-nowrap">{tree.topic}</span>
+                  )}
                 </button>
+              </li>
+            ))
+          )}
+        </ul>
+
+        {/* Sign out */}
+        <div className="flex-shrink-0 border-t border-zinc-200 dark:border-zinc-800">
+          <form action={logout}>
+            <button
+              type="submit"
+              className="w-full h-12 flex items-center gap-3 px-3 text-zinc-400 dark:text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4 flex-shrink-0">
+                <path fillRule="evenodd" d="M2 4.75A2.75 2.75 0 0 1 4.75 2h3a2.75 2.75 0 0 1 2.75 2.75v.5a.75.75 0 0 1-1.5 0v-.5c0-.69-.56-1.25-1.25-1.25h-3C4.06 3.5 3.5 4.06 3.5 4.75v6.5c0 .69.56 1.25 1.25 1.25h3c.69 0 1.25-.56 1.25-1.25v-.5a.75.75 0 0 1 1.5 0v.5A2.75 2.75 0 0 1 7.75 14h-3A2.75 2.75 0 0 1 2 11.25v-6.5Zm9.47.47a.75.75 0 0 1 1.06 0l2.25 2.25a.75.75 0 0 1 0 1.06l-2.25 2.25a.75.75 0 1 1-1.06-1.06l.97-.97H6.75a.75.75 0 0 1 0-1.5h5.69l-.97-.97a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
+              </svg>
+              {sidebarHovered && <span className="text-xs whitespace-nowrap">Sign out</span>}
+            </button>
+          </form>
+        </div>
+      </aside>
+
+      {/* Right drawer */}
+      <aside
+        className={`fixed right-0 top-0 h-screen w-[420px] max-w-[85vw] z-30 flex flex-col bg-white/95 dark:bg-zinc-900/95 backdrop-blur-sm border-l border-zinc-200 dark:border-zinc-800 transition-transform duration-200 ease-in-out ${
+          drawerOpen ? "translate-x-0" : "translate-x-full"
+        }`}
+      >
+        {/* Drawer header */}
+        <div className="h-12 flex-shrink-0 flex items-center justify-between px-4 border-b border-zinc-200 dark:border-zinc-800">
+          <h2 className="text-sm font-medium text-zinc-500 dark:text-zinc-400 truncate pr-3">
+            {previewState ? previewState.subtopic : activeNodeData?.topic ?? ""}
+          </h2>
+          <button
+            onClick={handleDismissDrawer}
+            className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+              <path d="M5.28 4.22a.75.75 0 0 0-1.06 1.06L6.94 8l-2.72 2.72a.75.75 0 1 0 1.06 1.06L8 9.06l2.72 2.72a.75.75 0 1 0 1.06-1.06L9.06 8l2.72-2.72a.75.75 0 0 0-1.06-1.06L8 6.94 5.28 4.22Z" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Drawer body */}
+        {previewState?.status === "loading" ? (
+          <div className="flex-1 overflow-y-auto px-6 py-6 flex flex-col gap-6">
+            <div className="flex flex-col gap-3">
+              <div className="h-7 w-2/3 bg-zinc-200 dark:bg-zinc-700 rounded-md animate-pulse" />
+              <div className="space-y-2 mt-1">
+                <div className="h-4 bg-zinc-200 dark:bg-zinc-700 rounded animate-pulse" />
+                <div className="h-4 bg-zinc-200 dark:bg-zinc-700 rounded animate-pulse w-11/12" />
+                <div className="h-4 bg-zinc-200 dark:bg-zinc-700 rounded animate-pulse w-5/6" />
+                <div className="h-4 bg-zinc-200 dark:bg-zinc-700 rounded animate-pulse w-4/6" />
               </div>
             </div>
-          ) : activeNodeData ? (
+          </div>
+        ) : previewState?.status === "ready" ? (
+          <div className="flex-1 flex flex-col overflow-hidden">
             <div className="flex-1 overflow-y-auto px-6 py-6 flex flex-col gap-6">
               <div className="flex flex-col gap-2">
                 <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">
-                  {activeNodeData.topic}
+                  {previewState.nodeData.topic}
                 </h1>
                 <div className="text-sm leading-6 text-zinc-800 dark:text-zinc-200 space-y-4">
-                  {activeNodeData.summary.split("\n\n").map(renderSummaryChunk)}
+                  {previewState.nodeData.summary.split("\n\n").map(renderSummaryChunk)}
                 </div>
               </div>
-              <div className="flex flex-col gap-2">
-                <h3 className="text-xs font-semibold text-zinc-400 dark:text-zinc-600 uppercase tracking-wider">
-                  Subtopics
-                </h3>
-                <ul className="flex flex-col gap-1">
-                  {activeNodeData.subtopics.map((sub, i) => (
-                    <li key={i}>
-                      <button
-                        onClick={() => handleSubtopicClick(sub)}
-                        disabled={isExpanding}
-                        className="w-full text-left px-3 py-2 rounded-lg text-sm text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-100 hover:bg-zinc-50 dark:hover:bg-zinc-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {sub}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              {(activeNodeData.sources?.length ?? 0) > 0 && (
-                <div className="flex flex-col gap-2">
-                  <h3 className="text-xs font-semibold text-zinc-400 dark:text-zinc-600 uppercase tracking-wider">
-                    Sources
-                  </h3>
-                  <ul className="flex flex-col gap-1">
-                    {activeNodeData.sources!.map((src, i) => (
-                      <li key={i}>
-                        <a
-                          href={src.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-1.5 text-sm text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300 hover:underline transition-colors truncate"
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 flex-shrink-0 opacity-60">
-                            <path d="M6.22 8.72a.75.75 0 0 0 1.06 1.06l5.22-5.22v1.69a.75.75 0 0 0 1.5 0v-3.5a.75.75 0 0 0-.75-.75h-3.5a.75.75 0 0 0 0 1.5h1.69L6.22 8.72Z" />
-                            <path d="M3.5 6.75c0-.69.56-1.25 1.25-1.25H7A.75.75 0 0 0 7 4H4.75A2.75 2.75 0 0 0 2 6.75v4.5A2.75 2.75 0 0 0 12 11.25V9a.75.75 0 0 0-1.5 0v2.25c0 .69-.56 1.25-1.25 1.25h-4.5c-.69 0-1.25-.56-1.25-1.25v-4.5Z" />
-                          </svg>
-                          <span className="truncate">{src.title}</span>
-                        </a>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
             </div>
-          ) : (
-            <div className="flex-1 flex flex-col items-center justify-center gap-3 text-zinc-400 dark:text-zinc-600 select-none">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-10 h-10">
-                <rect x="3" y="3" width="18" height="18" rx="2" />
-                <line x1="3" y1="9" x2="21" y2="9" />
-                <line x1="9" y1="21" x2="9" y2="9" />
-              </svg>
-              <span className="text-sm font-medium">
-                {trees.length > 0 ? "Select a topic from the sidebar" : "Add a topic to get started"}
-              </span>
+            <div className="px-6 py-4 border-t border-zinc-200 dark:border-zinc-700 flex-shrink-0">
+              <button
+                onClick={handleAddToGraph}
+                disabled={isExpanding}
+                className="w-full px-4 py-2.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isExpanding ? "Adding…" : "Add to Graph"}
+              </button>
             </div>
-          )}
-        </main>
-
-        {/* Resize handle: center | right */}
-        <div
-          onMouseDown={rightResize.onMouseDown}
-          className="w-1 flex-shrink-0 cursor-col-resize bg-zinc-200 dark:bg-zinc-700 hover:bg-blue-400 dark:hover:bg-blue-500 transition-colors"
-        />
-
-        {/* Right panel — graph */}
-        <aside
-          style={{ width: rightResize.width, minWidth: MIN_PANEL }}
-          className="flex-shrink-0 flex flex-col bg-zinc-50 dark:bg-zinc-900"
-        >
-          <div className="px-4 py-3 border-b border-zinc-200 dark:border-zinc-700">
-            <h2 className="text-sm font-semibold text-zinc-700 dark:text-zinc-200 uppercase tracking-wider">
-              Graph
-            </h2>
           </div>
-          <GraphPanel
-            nodes={graphNodes}
-            edges={graphEdges}
-            activeNodeId={activeNodeId}
-            pendingGhostId={previewState?.ghostNodeId ?? null}
-            onNodeClick={handleGraphNodeClick}
-          />
-        </aside>
-      </div>
+        ) : activeNodeData ? (
+          <div className="flex-1 overflow-y-auto px-6 py-6 flex flex-col gap-6">
+            <div className="flex flex-col gap-2">
+              <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">
+                {activeNodeData.topic}
+              </h1>
+              <div className="text-sm leading-6 text-zinc-800 dark:text-zinc-200 space-y-4">
+                {activeNodeData.summary.split("\n\n").map(renderSummaryChunk)}
+              </div>
+            </div>
+            <div className="flex flex-col gap-2">
+              <h3 className="text-xs font-semibold text-zinc-400 dark:text-zinc-600 uppercase tracking-wider">
+                Subtopics
+              </h3>
+              <ul className="flex flex-col gap-1">
+                {activeNodeData.subtopics.map((sub, i) => (
+                  <li key={i}>
+                    <button
+                      onClick={() => handleSubtopicClick(sub)}
+                      disabled={isExpanding}
+                      className="w-full text-left px-3 py-2 rounded-lg text-sm text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-100 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {sub}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        ) : null}
+      </aside>
 
       {/* Add topic modal */}
       {showModal && (
