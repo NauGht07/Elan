@@ -16,6 +16,7 @@ type NodeData = {
   summary: string;
   brief: string;
   subtopics: string[];
+  sources?: { title: string; url: string }[];
 };
 
 type CircleNodeData = {
@@ -28,6 +29,7 @@ type CircleNodeData = {
 type GhostNodeData = {
   label: string;
   parentId: string;
+  isPending?: boolean;
 };
 
 function CircleNode({ data }: { data: CircleNodeData }) {
@@ -81,6 +83,8 @@ function CircleNode({ data }: { data: CircleNodeData }) {
 
 function GhostNode({ data }: { data: GhostNodeData }) {
   const [hovered, setHovered] = useState(false);
+  const isPending = !!data.isPending;
+
   return (
     <>
       <Handle type="target" position={Position.Top} style={{ opacity: 0, pointerEvents: "none" }} />
@@ -92,12 +96,14 @@ function GhostNode({ data }: { data: GhostNodeData }) {
           width: "100%",
           height: "100%",
           borderRadius: "50%",
-          backgroundColor: "transparent",
-          border: "1.5px dashed #71717a",
-          opacity: 0.5,
+          backgroundColor: isPending ? "rgba(167, 139, 250, 0.15)" : "transparent",
+          border: isPending ? "1.5px solid #a78bfa" : "1.5px dashed #71717a",
+          boxShadow: isPending ? "0 0 0 3px rgba(167, 139, 250, 0.2)" : "none",
+          opacity: isPending ? 1 : 0.5,
+          transition: "all 0.15s ease",
         }}
       />
-      {hovered && (
+      {(hovered || isPending) && (
         <div
           style={{
             position: "absolute",
@@ -105,7 +111,7 @@ function GhostNode({ data }: { data: GhostNodeData }) {
             top: "50%",
             transform: "translateY(-50%)",
             backgroundColor: "#18181b",
-            border: "1px solid #3f3f46",
+            border: `1px solid ${isPending ? "#6d28d9" : "#3f3f46"}`,
             borderRadius: 6,
             padding: "6px 10px",
             pointerEvents: "none",
@@ -114,9 +120,14 @@ function GhostNode({ data }: { data: GhostNodeData }) {
             maxWidth: 180,
           }}
         >
-          <div style={{ fontSize: 11, fontWeight: 600, color: "#a1a1aa", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: isPending ? "#c4b5fd" : "#a1a1aa", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
             {data.label}
           </div>
+          {isPending && (
+            <div style={{ fontSize: 10, color: "#7c3aed", marginTop: 2 }}>
+              preview
+            </div>
+          )}
         </div>
       )}
     </>
@@ -137,18 +148,20 @@ export default function GraphPanel({
   nodes,
   edges,
   activeNodeId,
+  pendingGhostId,
   onNodeClick,
 }: {
   nodes: Node[];
   edges: Edge[];
   activeNodeId: string | null;
+  pendingGhostId: string | null;
   onNodeClick: (id: string, nodeType: string, data: Record<string, unknown>) => void;
 }) {
-  const augmentedNodes = nodes.map((n) =>
-    n.type === "circle"
-      ? { ...n, data: { ...n.data, isActive: n.id === activeNodeId } }
-      : n
-  );
+  const augmentedNodes = nodes.map((n) => {
+    if (n.type === "circle") return { ...n, data: { ...n.data, isActive: n.id === activeNodeId } };
+    if (n.type === "ghost") return { ...n, data: { ...n.data, isPending: n.id === pendingGhostId } };
+    return n;
+  });
 
   const handleNodeClick: NodeMouseHandler = (_, node) => {
     onNodeClick(node.id, node.type ?? "circle", node.data as Record<string, unknown>);

@@ -6,11 +6,14 @@ import { type Node, type Edge } from "@xyflow/react";
 import GraphPanel from "./components/GraphPanel";
 import { logout } from "./actions/auth";
 
+type Source = { title: string; url: string };
+
 type NodeData = {
   topic: string;
   summary: string;
   brief: string;
   subtopics: string[];
+  sources?: Source[];
 };
 
 type GhostNodeData = {
@@ -32,9 +35,14 @@ type DBNode = {
   summary: string;
   brief: string;
   subtopics: string[];
+  sources?: Source[];
   ancestor_ids: string[];
   depth: number;
 };
+
+type PreviewState =
+  | { status: "loading"; subtopic: string; parentId: string; ghostNodeId: string | null }
+  | { status: "ready"; subtopic: string; parentId: string; nodeData: NodeData; ghostNodeId: string | null };
 
 const GHOST_SIZE = 12;
 
@@ -56,6 +64,53 @@ const ghostWrapperStyle = {
 
 function nodeSize(childCount: number) {
   return 10 + childCount * 2;
+}
+
+function layoutTree(nodes: Node[], edges: Edge[]): Node[] {
+  if (nodes.length === 0) return nodes;
+
+  const childMap: Record<string, string[]> = {};
+  const hasParent = new Set<string>();
+
+  for (const n of nodes) childMap[n.id] = [];
+  for (const e of edges) {
+    childMap[e.source]?.push(e.target);
+    hasParent.add(e.target);
+  }
+
+  const root = nodes.find((n) => !hasParent.has(n.id));
+  if (!root) return nodes;
+
+  const depth: Record<string, number> = { [root.id]: 0 };
+  const queue: string[] = [root.id];
+  while (queue.length) {
+    const id = queue.shift()!;
+    for (const child of childMap[id] ?? []) {
+      depth[child] = depth[id] + 1;
+      queue.push(child);
+    }
+  }
+
+  const levels: Record<number, string[]> = {};
+  for (const [id, d] of Object.entries(depth)) {
+    (levels[d] ??= []).push(id);
+  }
+
+  const X_GAP = 140;
+  const Y_GAP = 120;
+  const positions: Record<string, { x: number; y: number }> = {};
+
+  for (const [dStr, ids] of Object.entries(levels)) {
+    const d = Number(dStr);
+    ids.forEach((id, i) => {
+      positions[id] = {
+        x: (i - (ids.length - 1) / 2) * X_GAP,
+        y: d * Y_GAP,
+      };
+    });
+  }
+
+  return nodes.map((n) => ({ ...n, position: positions[n.id] ?? n.position }));
 }
 
 type SummarySegment =
@@ -154,52 +209,6 @@ function makeGhosts(parentId: string, subtopics: string[]): { nodes: Node[]; edg
   return { nodes, edges };
 }
 
-function layoutTree(nodes: Node[], edges: Edge[]): Node[] {
-  if (nodes.length === 0) return nodes;
-
-  const childMap: Record<string, string[]> = {};
-  const hasParent = new Set<string>();
-
-  for (const n of nodes) childMap[n.id] = [];
-  for (const e of edges) {
-    childMap[e.source]?.push(e.target);
-    hasParent.add(e.target);
-  }
-
-  const root = nodes.find((n) => !hasParent.has(n.id));
-  if (!root) return nodes;
-
-  const depth: Record<string, number> = { [root.id]: 0 };
-  const queue: string[] = [root.id];
-  while (queue.length) {
-    const id = queue.shift()!;
-    for (const child of childMap[id] ?? []) {
-      depth[child] = depth[id] + 1;
-      queue.push(child);
-    }
-  }
-
-  const levels: Record<number, string[]> = {};
-  for (const [id, d] of Object.entries(depth)) {
-    (levels[d] ??= []).push(id);
-  }
-
-  const X_GAP = 140;
-  const Y_GAP = 120;
-  const positions: Record<string, { x: number; y: number }> = {};
-
-  for (const [dStr, ids] of Object.entries(levels)) {
-    const d = Number(dStr);
-    ids.forEach((id, i) => {
-      positions[id] = {
-        x: (i - (ids.length - 1) / 2) * X_GAP,
-        y: d * Y_GAP,
-      };
-    });
-  }
-
-  return nodes.map((n) => ({ ...n, position: positions[n.id] ?? n.position }));
-}
 
 function reconstructGraph(dbNodes: DBNode[]): { nodes: Node[]; edges: Edge[] } {
   const childrenByParent: Record<string, DBNode[]> = {};
@@ -228,6 +237,7 @@ function reconstructGraph(dbNodes: DBNode[]): { nodes: Node[]; edges: Edge[] } {
           summary: dbNode.summary,
           brief: dbNode.brief,
           subtopics: dbNode.subtopics,
+          sources: dbNode.sources ?? [],
         },
       },
       style: nodeWrapperStyle(size),
@@ -311,6 +321,8 @@ export default function Home() {
   const [activeNodeData, setActiveNodeData] = useState<NodeData | null>(null);
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
   const [isExpanding, setIsExpanding] = useState(false);
+  const [previewState, setPreviewState] = useState<PreviewState | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     fetch("/api/trees")
@@ -322,6 +334,8 @@ export default function Home() {
 
   async function handleTreeSelect(tree: TreeRecord) {
     if (activeTreeId === tree.id) return;
+    abortRef.current?.abort();
+    setPreviewState(null);
     setActiveTreeId(tree.id);
     setIsLoadingGraph(true);
     setGraphNodes([]);
@@ -344,6 +358,7 @@ export default function Home() {
           summary: root.summary,
           brief: root.brief,
           subtopics: root.subtopics,
+          sources: root.sources ?? [],
         });
         setActiveNodeId(root.id);
       }
@@ -386,7 +401,8 @@ export default function Home() {
       return;
     }
     const raw = (await res.json()) as NodeData & { tree_id: string; node_id: string };
-    const { tree_id, node_id, ...nodeData } = raw;
+    const { tree_id, node_id, sources, ...rest } = raw;
+    const nodeData: NodeData = { ...rest, sources: sources ?? [] };
 
     setTrees((prev) => [
       { id: tree_id, topic: nodeData.topic, created_at: new Date().toISOString() },
@@ -414,32 +430,79 @@ export default function Home() {
     setActiveNodeId(node_id);
   }
 
-  async function handleExpandSubtopic(subtopic: string, parentId: string) {
-    if (isExpanding) return;
-    setIsExpanding(true);
+  async function startPreview(subtopic: string, parentId: string) {
+    if (
+      previewState?.status === "ready" &&
+      previewState.subtopic.toLowerCase() === subtopic.toLowerCase() &&
+      previewState.parentId === parentId
+    ) return;
+
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    const ghostNode = graphNodes.find(
+      (n) =>
+        n.type === "ghost" &&
+        (n.data as unknown as GhostNodeData).parentId === parentId &&
+        (n.data as unknown as GhostNodeData).label.toLowerCase() === subtopic.toLowerCase()
+    );
+
+    setPreviewState({ status: "loading", subtopic, parentId, ghostNodeId: ghostNode?.id ?? null });
 
     try {
       const briefs = graphNodes
         .filter((n) => n.type === "circle")
         .map((n) => (n.data as { nodeData: NodeData }).nodeData.brief);
 
+      const res = await fetch("/api/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topic: subtopic, brief_list: briefs }),
+        signal: controller.signal,
+      });
+
+      if (controller.signal.aborted) return;
+
+      if (!res.ok) {
+        setPreviewState(null);
+        const { error } = await res.json().catch(() => ({ error: "Unknown error" }));
+        setApiError(error ?? "Failed to load preview");
+        return;
+      }
+
+      const nodeData: NodeData = await res.json();
+      if (controller.signal.aborted) return;
+
+      setPreviewState({ status: "ready", subtopic, parentId, nodeData, ghostNodeId: ghostNode?.id ?? null });
+    } catch (err) {
+      if ((err as DOMException).name === "AbortError") return;
+      setPreviewState(null);
+      setApiError("Failed to load preview");
+    }
+  }
+
+  async function handleAddToGraph() {
+    if (previewState?.status !== "ready" || !activeTreeId) return;
+    const { subtopic, parentId, nodeData, ghostNodeId } = previewState;
+
+    setIsExpanding(true);
+    setPreviewState(null);
+
+    try {
       const res = await fetch("/api/nodes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          topic: subtopic,
-          parent_id: parentId,
-          tree_id: activeTreeId,
-          brief_list: briefs,
-        }),
+        body: JSON.stringify({ topic: subtopic, parent_id: parentId, tree_id: activeTreeId, nodeData }),
       });
+
       if (!res.ok) {
         const { error } = await res.json().catch(() => ({ error: "Unknown error" }));
-        setApiError(error ?? "Failed to expand subtopic");
+        setApiError(error ?? "Failed to add to graph");
         return;
       }
-      const raw = (await res.json()) as NodeData & { node_id: string };
-      const { node_id: newId, ...nodeData } = raw;
+
+      const { node_id: newId } = await res.json();
 
       const size = nodeSize(nodeData.subtopics.length);
       const newNode: Node = {
@@ -459,19 +522,17 @@ export default function Home() {
         target: newId,
       };
 
-      const ghostToRemove = graphNodes.find(
-        (n) =>
-          n.type === "ghost" &&
-          (n.data as unknown as GhostNodeData).parentId === parentId &&
-          (n.data as unknown as GhostNodeData).label.toLowerCase() === subtopic.toLowerCase()
-      );
+      const ghostToRemove = ghostNodeId
+        ? { id: ghostNodeId }
+        : graphNodes.find(
+            (n) =>
+              n.type === "ghost" &&
+              (n.data as unknown as GhostNodeData).parentId === parentId &&
+              (n.data as unknown as GhostNodeData).label.toLowerCase() === subtopic.toLowerCase()
+          );
 
-      const baseNodes = ghostToRemove
-        ? graphNodes.filter((n) => n.id !== ghostToRemove.id)
-        : graphNodes;
-      const baseEdges = ghostToRemove
-        ? graphEdges.filter((e) => e.target !== ghostToRemove.id)
-        : graphEdges;
+      const baseNodes = ghostToRemove ? graphNodes.filter((n) => n.id !== ghostToRemove.id) : graphNodes;
+      const baseEdges = ghostToRemove ? graphEdges.filter((e) => e.target !== ghostToRemove.id) : graphEdges;
 
       const updatedNodes = [...baseNodes, newNode, ...newGhostNodes];
       const updatedEdges = [...baseEdges, realEdge, ...newGhostEdges];
@@ -485,7 +546,7 @@ export default function Home() {
     }
   }
 
-  async function handleSubtopicClick(subtopic: string) {
+  function handleSubtopicClick(subtopic: string) {
     if (!activeNodeId || isExpanding) return;
 
     const existing = graphNodes.find(
@@ -494,21 +555,30 @@ export default function Home() {
         (n.data as { label: string }).label.toLowerCase() === subtopic.toLowerCase()
     );
     if (existing) {
+      abortRef.current?.abort();
+      setPreviewState(null);
       setActiveNodeId(existing.id);
       setActiveNodeData((existing.data as { nodeData: NodeData }).nodeData);
       return;
     }
 
-    await handleExpandSubtopic(subtopic, activeNodeId);
+    startPreview(subtopic, activeNodeId);
   }
 
   function handleGraphNodeClick(id: string, nodeType: string, data: Record<string, unknown>) {
     if (nodeType === "circle") {
+      abortRef.current?.abort();
+      setPreviewState(null);
       setActiveNodeId(id);
       setActiveNodeData((data as { nodeData: NodeData }).nodeData);
     } else if (nodeType === "ghost") {
       const ghost = data as unknown as GhostNodeData;
-      handleExpandSubtopic(ghost.label, ghost.parentId);
+      const parentCircle = graphNodes.find((n) => n.id === ghost.parentId && n.type === "circle");
+      if (parentCircle) {
+        setActiveNodeId(parentCircle.id);
+        setActiveNodeData((parentCircle.data as { nodeData: NodeData }).nodeData);
+      }
+      startPreview(ghost.label, ghost.parentId);
     }
   }
 
@@ -600,7 +670,9 @@ export default function Home() {
         >
           <div className="px-4 py-3 border-b border-zinc-200 dark:border-zinc-700">
             <h2 className="text-sm font-medium text-zinc-400 dark:text-zinc-500 truncate">
-              {activeNodeData ? (
+              {previewState ? (
+                previewState.subtopic
+              ) : activeNodeData ? (
                 activeNodeData.topic
               ) : (
                 <span className="font-normal">No node selected</span>
@@ -611,6 +683,65 @@ export default function Home() {
           {isLoadingGraph ? (
             <div className="flex-1 flex items-center justify-center text-zinc-400 dark:text-zinc-600 text-sm select-none">
               Loading…
+            </div>
+          ) : previewState?.status === "loading" ? (
+            <div className="flex-1 overflow-y-auto px-6 py-6 flex flex-col gap-6">
+              <div className="flex flex-col gap-3">
+                <div className="h-7 w-2/3 bg-zinc-200 dark:bg-zinc-700 rounded-md animate-pulse" />
+                <div className="space-y-2 mt-1">
+                  <div className="h-4 bg-zinc-200 dark:bg-zinc-700 rounded animate-pulse" />
+                  <div className="h-4 bg-zinc-200 dark:bg-zinc-700 rounded animate-pulse w-11/12" />
+                  <div className="h-4 bg-zinc-200 dark:bg-zinc-700 rounded animate-pulse w-5/6" />
+                  <div className="h-4 bg-zinc-200 dark:bg-zinc-700 rounded animate-pulse w-4/6" />
+                </div>
+              </div>
+            </div>
+          ) : previewState?.status === "ready" ? (
+            <div className="flex-1 flex flex-col overflow-hidden">
+              <div className="flex-1 overflow-y-auto px-6 py-6 flex flex-col gap-6">
+                <div className="flex flex-col gap-2">
+                  <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">
+                    {previewState.nodeData.topic}
+                  </h1>
+                  <div className="text-sm leading-6 text-zinc-800 dark:text-zinc-200 space-y-4">
+                    {previewState.nodeData.summary.split("\n\n").map(renderSummaryChunk)}
+                  </div>
+                </div>
+                {(previewState.nodeData.sources?.length ?? 0) > 0 && (
+                  <div className="flex flex-col gap-2">
+                    <h3 className="text-xs font-semibold text-zinc-400 dark:text-zinc-600 uppercase tracking-wider">
+                      Sources
+                    </h3>
+                    <ul className="flex flex-col gap-1">
+                      {previewState.nodeData.sources!.map((src, i) => (
+                        <li key={i}>
+                          <a
+                            href={src.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1.5 text-sm text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300 hover:underline transition-colors truncate"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 flex-shrink-0 opacity-60">
+                              <path d="M6.22 8.72a.75.75 0 0 0 1.06 1.06l5.22-5.22v1.69a.75.75 0 0 0 1.5 0v-3.5a.75.75 0 0 0-.75-.75h-3.5a.75.75 0 0 0 0 1.5h1.69L6.22 8.72Z" />
+                              <path d="M3.5 6.75c0-.69.56-1.25 1.25-1.25H7A.75.75 0 0 0 7 4H4.75A2.75 2.75 0 0 0 2 6.75v4.5A2.75 2.75 0 0 0 4.75 14h4.5A2.75 2.75 0 0 0 12 11.25V9a.75.75 0 0 0-1.5 0v2.25c0 .69-.56 1.25-1.25 1.25h-4.5c-.69 0-1.25-.56-1.25-1.25v-4.5Z" />
+                            </svg>
+                            <span className="truncate">{src.title}</span>
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+              <div className="px-6 py-4 border-t border-zinc-200 dark:border-zinc-700 flex-shrink-0">
+                <button
+                  onClick={handleAddToGraph}
+                  disabled={isExpanding}
+                  className="w-full px-4 py-2.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isExpanding ? "Adding…" : "Add to Graph"}
+                </button>
+              </div>
             </div>
           ) : activeNodeData ? (
             <div className="flex-1 overflow-y-auto px-6 py-6 flex flex-col gap-6">
@@ -640,6 +771,31 @@ export default function Home() {
                   ))}
                 </ul>
               </div>
+              {(activeNodeData.sources?.length ?? 0) > 0 && (
+                <div className="flex flex-col gap-2">
+                  <h3 className="text-xs font-semibold text-zinc-400 dark:text-zinc-600 uppercase tracking-wider">
+                    Sources
+                  </h3>
+                  <ul className="flex flex-col gap-1">
+                    {activeNodeData.sources!.map((src, i) => (
+                      <li key={i}>
+                        <a
+                          href={src.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1.5 text-sm text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300 hover:underline transition-colors truncate"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 flex-shrink-0 opacity-60">
+                            <path d="M6.22 8.72a.75.75 0 0 0 1.06 1.06l5.22-5.22v1.69a.75.75 0 0 0 1.5 0v-3.5a.75.75 0 0 0-.75-.75h-3.5a.75.75 0 0 0 0 1.5h1.69L6.22 8.72Z" />
+                            <path d="M3.5 6.75c0-.69.56-1.25 1.25-1.25H7A.75.75 0 0 0 7 4H4.75A2.75 2.75 0 0 0 2 6.75v4.5A2.75 2.75 0 0 0 12 11.25V9a.75.75 0 0 0-1.5 0v2.25c0 .69-.56 1.25-1.25 1.25h-4.5c-.69 0-1.25-.56-1.25-1.25v-4.5Z" />
+                          </svg>
+                          <span className="truncate">{src.title}</span>
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center gap-3 text-zinc-400 dark:text-zinc-600 select-none">
@@ -675,6 +831,7 @@ export default function Home() {
             nodes={graphNodes}
             edges={graphEdges}
             activeNodeId={activeNodeId}
+            pendingGhostId={previewState?.ghostNodeId ?? null}
             onNodeClick={handleGraphNodeClick}
           />
         </aside>
