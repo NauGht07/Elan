@@ -137,9 +137,16 @@ export async function DELETE(request: NextRequest) {
   const { data: tree } = await supabase.from("trees").select("user_id").eq("id", node.tree_id).single();
   if (!tree || tree.user_id !== user.id) return Response.json({ error: "Unauthorized" }, { status: 403 });
 
-  await supabase.from("nodes").delete().contains("ancestor_ids", [node_id]);
+  const { data: allNodes } = await supabase
+    .from("nodes")
+    .select("id, ancestor_ids")
+    .eq("tree_id", node.tree_id);
 
-  const { error } = await supabase.from("nodes").delete().eq("id", node_id);
+  const toDelete = (allNodes ?? [])
+    .filter((n) => n.id === node_id || (n.ancestor_ids as string[]).includes(node_id))
+    .map((n) => n.id);
+
+  const { error } = await supabase.from("nodes").delete().in("id", toDelete);
   if (error) return Response.json({ error: error.message }, { status: 500 });
   return Response.json({ ok: true });
 }

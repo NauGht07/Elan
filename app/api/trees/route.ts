@@ -1,6 +1,7 @@
 import Groq from "groq-sdk";
 import { NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 const SYSTEM_PROMPT = process.env.SYSTEM_PROMPT ?? "";
@@ -100,9 +101,10 @@ export async function DELETE(request: NextRequest) {
   const { data: tree } = await supabase.from("trees").select("user_id").eq("id", tree_id).single();
   if (!tree || tree.user_id !== user.id) return Response.json({ error: "Unauthorized" }, { status: 403 });
 
-  await supabase.from("nodes").delete().eq("tree_id", tree_id);
+  const admin = createAdminClient();
+  await admin.from("nodes").delete().eq("tree_id", tree_id);
 
-  const { error } = await supabase.from("trees").delete().eq("id", tree_id);
+  const { error } = await admin.from("trees").delete().eq("id", tree_id);
   if (error) return Response.json({ error: error.message }, { status: 500 });
 
   return Response.json({ ok: true });
