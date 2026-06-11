@@ -64,10 +64,14 @@ function CircleNode({ data }: { data: CircleNodeData }) {
           width: "100%",
           height: "100%",
           borderRadius: "50%",
-          backgroundColor: data.isRoot ? "#a78bfa" : data.isActive ? "#a78bfa" : "#7c6ff7",
+          backgroundColor: data.isRoot
+            ? (data.isActive ? "#7c3aed" : "#6d28d9")
+            : (data.isActive ? "#a78bfa" : "#7c6ff7"),
           boxShadow: data.isRoot
-            ? "0 0 0 3px rgba(167, 139, 250, 0.4), 0 0 12px rgba(167, 139, 250, 0.3)"
-            : data.isActive ? "0 0 0 3px rgba(167, 139, 250, 0.35)" : "none",
+            ? (data.isActive
+              ? "0 0 0 2.5px #c4b5fd, 0 0 0 6px rgba(167, 139, 250, 0.45), 0 0 22px rgba(167, 139, 250, 0.5)"
+              : "0 0 0 2.5px #7c3aed, 0 0 0 5px rgba(109, 40, 217, 0.2), 0 0 12px rgba(109, 40, 217, 0.25)")
+            : (data.isActive ? "0 0 0 3px rgba(167, 139, 250, 0.35)" : "none"),
           animation: `nodeEnter 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) ${delay} both`,
         }}
       />
@@ -114,11 +118,12 @@ function GhostNode({ data }: { data: GhostNodeData }) {
       <div
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
+        className={!isPending ? "bg-zinc-50 dark:bg-zinc-900" : ""}
         style={{
           width: "100%",
           height: "100%",
           borderRadius: "50%",
-          backgroundColor: isPending ? "rgba(167, 139, 250, 0.15)" : "transparent",
+          ...(isPending ? { backgroundColor: "rgba(167, 139, 250, 0.15)" } : {}),
           border: isPending ? "1.5px solid #a78bfa" : "1.5px dashed #71717a",
           boxShadow: isPending ? "0 0 0 3px rgba(167, 139, 250, 0.2)" : "none",
           opacity: isPending ? 1 : 0.5,

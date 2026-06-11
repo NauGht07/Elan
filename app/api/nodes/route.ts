@@ -110,3 +110,37 @@ export async function POST(request: NextRequest) {
   return Response.json({ node_id: node.id });
 }
 
+export async function PATCH(request: NextRequest) {
+  const { node_id, notes } = await request.json();
+
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+
+  const { error } = await supabase.from("nodes").update({ notes }).eq("id", node_id);
+  if (error) return Response.json({ error: error.message }, { status: 500 });
+
+  return Response.json({ ok: true });
+}
+
+export async function DELETE(request: NextRequest) {
+  const node_id = new URL(request.url).searchParams.get("node_id");
+  if (!node_id) return Response.json({ error: "node_id required" }, { status: 400 });
+
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+
+  const { data: node } = await supabase.from("nodes").select("tree_id").eq("id", node_id).single();
+  if (!node) return Response.json({ error: "Not found" }, { status: 404 });
+
+  const { data: tree } = await supabase.from("trees").select("user_id").eq("id", node.tree_id).single();
+  if (!tree || tree.user_id !== user.id) return Response.json({ error: "Unauthorized" }, { status: 403 });
+
+  await supabase.from("nodes").delete().contains("ancestor_ids", [node_id]);
+
+  const { error } = await supabase.from("nodes").delete().eq("id", node_id);
+  if (error) return Response.json({ error: error.message }, { status: 500 });
+  return Response.json({ ok: true });
+}
+

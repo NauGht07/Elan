@@ -33,6 +33,7 @@ type DBNode = {
   summary: string;
   brief: string;
   subtopics: string[];
+  notes?: string;
   ancestor_ids: string[];
   depth: number;
 };
@@ -43,7 +44,7 @@ type PreviewState =
 
 const GHOST_SIZE = 12;
 const CIRCLE_SIZE = 14;
-const ROOT_SIZE = 20;
+const ROOT_SIZE = 26;
 
 const nodeWrapperStyle = (size: number) => ({
   background: "transparent",
@@ -109,7 +110,7 @@ function layoutRadial(nodes: Node[], edges: Edge[]): Node[] {
 
   place(root.id, -Math.PI / 2, (3 * Math.PI) / 2, 0);
 
-  // Place ghost nodes in a ring around their parent
+  // Place ghost nodes around their parent
   const ghostsByParent: Record<string, string[]> = {};
   for (const n of nodes) {
     if (n.type === "ghost") {
@@ -117,12 +118,12 @@ function layoutRadial(nodes: Node[], edges: Edge[]): Node[] {
       (ghostsByParent[d.parentId] ??= []).push(n.id);
     }
   }
-  const GHOST_R = 52;
+  const GHOST_R = 56;
   for (const [pid, gids] of Object.entries(ghostsByParent)) {
     const pp = pos[pid] ?? { x: 0, y: 0 };
-    const outward = pp.x === 0 && pp.y === 0 ? -Math.PI / 2 : Math.atan2(pp.y, pp.x);
+    const n = gids.length;
     gids.forEach((gid, i) => {
-      const angle = outward + (2 * Math.PI * i) / gids.length;
+      const angle = -Math.PI / 2 + (2 * Math.PI * i) / n;
       pos[gid] = { x: pp.x + GHOST_R * Math.cos(angle), y: pp.y + GHOST_R * Math.sin(angle) };
     });
   }
@@ -307,10 +308,22 @@ export default function Home() {
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
   const [isExpanding, setIsExpanding] = useState(false);
   const [previewState, setPreviewState] = useState<PreviewState | null>(null);
+  const [notes, setNotes] = useState("");
+  const [nodeDeleteConfirm, setNodeDeleteConfirm] = useState(false);
+  const [isDeletingNode, setIsDeletingNode] = useState(false);
+  const [confirmDeleteTreeId, setConfirmDeleteTreeId] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const notesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const drawerOpen = previewState !== null || activeNodeData !== null;
 
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [notes]);
 
   useEffect(() => {
     fetch("/api/trees")
@@ -320,38 +333,37 @@ export default function Home() {
       .finally(() => setIsLoadingTrees(false));
   }, []);
 
-  async function handleTreeSelect(tree: TreeRecord) {
-    if (activeTreeId === tree.id) return;
-    abortRef.current?.abort();
-    setPreviewState(null);
-    setActiveTreeId(tree.id);
+  async function loadTree(treeId: string) {
     setIsLoadingGraph(true);
     setGraphNodes([]);
     setGraphEdges([]);
     setActiveNodeData(null);
     setActiveNodeId(null);
-
+    setNodeDeleteConfirm(false);
     try {
-      const res = await fetch(`/api/nodes?tree_id=${tree.id}`);
+      const res = await fetch(`/api/nodes?tree_id=${treeId}`);
       if (!res.ok) return;
       const dbNodes: DBNode[] = await res.json();
       const { nodes, edges } = reconstructGraph(dbNodes);
       setGraphNodes(nodes);
       setGraphEdges(edges);
-
       const root = dbNodes.find((n) => n.depth === 0);
       if (root) {
-        setActiveNodeData({
-          topic: root.topic,
-          summary: root.summary,
-          brief: root.brief,
-          subtopics: root.subtopics,
-        });
+        setActiveNodeData({ topic: root.topic, summary: root.summary, brief: root.brief, subtopics: root.subtopics });
         setActiveNodeId(root.id);
+        setNotes(root.notes ?? "");
       }
     } finally {
       setIsLoadingGraph(false);
     }
+  }
+
+  async function handleTreeSelect(tree: TreeRecord) {
+    if (activeTreeId === tree.id) return;
+    abortRef.current?.abort();
+    setPreviewState(null);
+    setActiveTreeId(tree.id);
+    await loadTree(tree.id);
   }
 
   async function handleDisambiguate() {
@@ -413,6 +425,7 @@ export default function Home() {
     setGraphEdges(ghostEdges);
     setActiveNodeData(nodeData);
     setActiveNodeId(node_id);
+    setNotes("");
   }
 
   async function startPreview(subtopic: string, parentId: string) {
@@ -528,6 +541,7 @@ export default function Home() {
       setGraphEdges(updatedEdges);
       setActiveNodeData(nodeData);
       setActiveNodeId(newId);
+      setNotes("");
     } finally {
       setIsExpanding(false);
     }
@@ -546,10 +560,28 @@ export default function Home() {
       setPreviewState(null);
       setActiveNodeId(existing.id);
       setActiveNodeData((existing.data as { nodeData: NodeData }).nodeData);
+      setNotes((existing.data as { notes?: string }).notes ?? "");
       return;
     }
 
     startPreview(subtopic, activeNodeId);
+  }
+
+  function handleNotesChange(value: string) {
+    setNotes(value);
+    if (activeNodeId) {
+      setGraphNodes((prev) =>
+        prev.map((n) => n.id === activeNodeId ? { ...n, data: { ...(n.data as object), notes: value } } : n)
+      );
+      if (notesTimerRef.current) clearTimeout(notesTimerRef.current);
+      notesTimerRef.current = setTimeout(() => {
+        fetch("/api/nodes", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ node_id: activeNodeId, notes: value }),
+        }).catch(() => {});
+      }, 500);
+    }
   }
 
   function handleDismissDrawer() {
@@ -557,24 +589,68 @@ export default function Home() {
     setPreviewState(null);
     setActiveNodeData(null);
     setActiveNodeId(null);
+    setNodeDeleteConfirm(false);
+  }
+
+  async function handleDeleteNode() {
+    if (!activeNodeId || !activeTreeId) return;
+    setIsDeletingNode(true);
+    try {
+      const res = await fetch(`/api/nodes?node_id=${activeNodeId}`, { method: "DELETE" });
+      if (!res.ok) {
+        const { error } = await res.json().catch(() => ({ error: "Delete failed" }));
+        setApiError(error);
+        return;
+      }
+      setPreviewState(null);
+      await loadTree(activeTreeId);
+    } finally {
+      setIsDeletingNode(false);
+    }
+  }
+
+  async function handleDeleteTree(treeId: string) {
+    const res = await fetch(`/api/trees?tree_id=${treeId}`, { method: "DELETE" });
+    if (!res.ok) {
+      const { error } = await res.json().catch(() => ({ error: "Delete failed" }));
+      setApiError(error);
+      return;
+    }
+    setConfirmDeleteTreeId(null);
+    setTrees((prev) => prev.filter((t) => t.id !== treeId));
+    if (activeTreeId === treeId) {
+      setActiveTreeId(null);
+      setGraphNodes([]);
+      setGraphEdges([]);
+      setActiveNodeData(null);
+      setActiveNodeId(null);
+      setPreviewState(null);
+    }
   }
 
   function handleGraphNodeClick(id: string, nodeType: string, data: Record<string, unknown>) {
     if (nodeType === "circle") {
       abortRef.current?.abort();
       setPreviewState(null);
+      setNodeDeleteConfirm(false);
       setActiveNodeId(id);
       setActiveNodeData((data as { nodeData: NodeData }).nodeData);
+      setNotes((data as { notes?: string }).notes ?? "");
     } else if (nodeType === "ghost") {
       const ghost = data as unknown as GhostNodeData;
       const parentCircle = graphNodes.find((n) => n.id === ghost.parentId && n.type === "circle");
       if (parentCircle) {
         setActiveNodeId(parentCircle.id);
         setActiveNodeData((parentCircle.data as { nodeData: NodeData }).nodeData);
+        setNotes((parentCircle.data as { notes?: string }).notes ?? "");
       }
       startPreview(ghost.label, ghost.parentId);
     }
   }
+
+  const activeIsRoot = graphNodes.some(
+    (n) => n.id === activeNodeId && !!(n.data as { isRoot?: boolean }).isRoot
+  );
 
   return (
     <>
@@ -654,23 +730,60 @@ export default function Home() {
           ) : (
             trees.map((tree) => (
               <li key={tree.id}>
-                <button
-                  onClick={() => handleTreeSelect(tree)}
-                  className={`w-full flex items-center gap-3 h-9 px-3 transition-colors ${
+                {confirmDeleteTreeId === tree.id ? (
+                  <div className="flex items-center h-9 px-3 gap-1.5 bg-red-50 dark:bg-red-950/40">
+                    {sidebarHovered ? (
+                      <>
+                        <span className="flex-1 text-xs text-red-600 dark:text-red-400 truncate">Delete?</span>
+                        <button
+                          onClick={() => handleDeleteTree(tree.id)}
+                          className="text-xs text-red-600 dark:text-red-400 font-medium hover:underline px-1 flex-shrink-0"
+                        >
+                          Yes
+                        </button>
+                        <button
+                          onClick={() => setConfirmDeleteTreeId(null)}
+                          className="text-xs text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300 px-1 flex-shrink-0"
+                        >
+                          No
+                        </button>
+                      </>
+                    ) : (
+                      <div className="w-1.5 h-1.5 rounded-full bg-red-500 mx-auto" />
+                    )}
+                  </div>
+                ) : (
+                  <div className={`flex items-center h-9 transition-colors ${
                     activeTreeId === tree.id
                       ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100"
                       : "text-zinc-500 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800/60 hover:text-zinc-800 dark:hover:text-zinc-200"
-                  }`}
-                >
-                  <div
-                    className={`w-1.5 h-1.5 rounded-full flex-shrink-0 transition-colors ${
-                      activeTreeId === tree.id ? "bg-violet-500" : "bg-zinc-300 dark:bg-zinc-600"
-                    }`}
-                  />
-                  {sidebarHovered && (
-                    <span className="text-sm truncate whitespace-nowrap">{tree.topic}</span>
-                  )}
-                </button>
+                  }`}>
+                    <button
+                      onClick={() => handleTreeSelect(tree)}
+                      className="flex-1 flex items-center gap-3 h-full px-3 min-w-0"
+                    >
+                      <div
+                        className={`w-1.5 h-1.5 rounded-full flex-shrink-0 transition-colors ${
+                          activeTreeId === tree.id ? "bg-violet-500" : "bg-zinc-300 dark:bg-zinc-600"
+                        }`}
+                      />
+                      {sidebarHovered && (
+                        <span className="text-sm truncate whitespace-nowrap">{tree.topic}</span>
+                      )}
+                    </button>
+                    {sidebarHovered && (
+                      <button
+                        onClick={() => setConfirmDeleteTreeId(tree.id)}
+                        className="flex-shrink-0 w-7 h-full flex items-center justify-center text-zinc-300 dark:text-zinc-600 hover:text-red-500 dark:hover:text-red-400 transition-colors pr-2"
+                        title="Delete tree"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
+                          <path fillRule="evenodd" d="M5 3.25V4H2.75a.75.75 0 0 0 0 1.5h.3l.815 8.15A1.5 1.5 0 0 0 5.357 15h5.285a1.5 1.5 0 0 0 1.493-1.35l.815-8.15h.3a.75.75 0 0 0 0-1.5H11v-.75A2.25 2.25 0 0 0 8.75 1h-1.5A2.25 2.25 0 0 0 5 3.25Zm2.25-.75a.75.75 0 0 0-.75.75V4h3v-.75a.75.75 0 0 0-.75-.75h-1.5ZM6.05 6a.75.75 0 0 1 .787.713l.275 5.5a.75.75 0 0 1-1.498.075l-.275-5.5A.75.75 0 0 1 6.05 6Zm3.9 0a.75.75 0 0 1 .712.787l-.275 5.5a.75.75 0 0 1-1.498-.075l.275-5.5a.75.75 0 0 1 .786-.711Z" clipRule="evenodd" />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
+                )}
               </li>
             ))
           )}
@@ -701,7 +814,7 @@ export default function Home() {
         {/* Drawer header */}
         <div className="h-12 flex-shrink-0 flex items-center justify-between px-4 border-b border-zinc-200 dark:border-zinc-800">
           <h2 className="text-sm font-medium text-zinc-500 dark:text-zinc-400 truncate pr-3">
-            {previewState ? previewState.subtopic : activeNodeData?.topic ?? ""}
+            {trees.find((t) => t.id === activeTreeId)?.topic ?? ""}
           </h2>
           <button
             onClick={handleDismissDrawer}
@@ -776,6 +889,51 @@ export default function Home() {
                 ))}
               </ul>
             </div>
+            <div className="flex flex-col gap-2 pb-2">
+              <h3 className="text-xs font-semibold text-zinc-400 dark:text-zinc-600 uppercase tracking-wider">
+                Notes
+              </h3>
+              <textarea
+                ref={textareaRef}
+                value={notes}
+                onChange={(e) => handleNotesChange(e.target.value)}
+                placeholder="Add notes…"
+                rows={3}
+                className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50 px-3 py-2 text-sm text-zinc-800 dark:text-zinc-200 placeholder-zinc-400 dark:placeholder-zinc-500 outline-none focus:ring-2 focus:ring-zinc-400 dark:focus:ring-zinc-600 resize-none overflow-hidden transition"
+              />
+            </div>
+            {!activeIsRoot && (
+              <div className="pt-3 border-t border-zinc-100 dark:border-zinc-800">
+                {nodeDeleteConfirm ? (
+                  <div className="flex items-center gap-2">
+                    <span className="flex-1 text-xs text-red-500 dark:text-red-400">Delete this node and all sub-topics?</span>
+                    <button
+                      onClick={handleDeleteNode}
+                      disabled={isDeletingNode}
+                      className="text-xs text-red-500 dark:text-red-400 font-medium hover:underline disabled:opacity-50 flex-shrink-0"
+                    >
+                      {isDeletingNode ? "Deleting…" : "Delete"}
+                    </button>
+                    <button
+                      onClick={() => setNodeDeleteConfirm(false)}
+                      className="text-xs text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300 flex-shrink-0"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setNodeDeleteConfirm(true)}
+                    className="flex items-center gap-1.5 text-xs text-zinc-400 dark:text-zinc-500 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
+                      <path fillRule="evenodd" d="M5 3.25V4H2.75a.75.75 0 0 0 0 1.5h.3l.815 8.15A1.5 1.5 0 0 0 5.357 15h5.285a1.5 1.5 0 0 0 1.493-1.35l.815-8.15h.3a.75.75 0 0 0 0-1.5H11v-.75A2.25 2.25 0 0 0 8.75 1h-1.5A2.25 2.25 0 0 0 5 3.25Zm2.25-.75a.75.75 0 0 0-.75.75V4h3v-.75a.75.75 0 0 0-.75-.75h-1.5ZM6.05 6a.75.75 0 0 1 .787.713l.275 5.5a.75.75 0 0 1-1.498.075l-.275-5.5A.75.75 0 0 1 6.05 6Zm3.9 0a.75.75 0 0 1 .712.787l-.275 5.5a.75.75 0 0 1-1.498-.075l.275-5.5a.75.75 0 0 1 .786-.711Z" clipRule="evenodd" />
+                    </svg>
+                    Delete node
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         ) : null}
       </aside>
