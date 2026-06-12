@@ -300,6 +300,7 @@ export default function Home() {
   const [isExpanding, setIsExpanding] = useState(false);
   const [previewState, setPreviewState] = useState<PreviewState | null>(null);
   const [notes, setNotes] = useState("");
+  const [customTopic, setCustomTopic] = useState("");
   const [nodeDeleteConfirm, setNodeDeleteConfirm] = useState(false);
   const [isDeletingNode, setIsDeletingNode] = useState(false);
   const [confirmDeleteTreeId, setConfirmDeleteTreeId] = useState<string | null>(null);
@@ -326,6 +327,10 @@ export default function Home() {
   }, [activeNodeId, graphNodes, graphEdges]);
 
   const drawerOpen = previewState !== null || activeNodeData !== null;
+
+  useEffect(() => {
+    setCustomTopic("");
+  }, [activeNodeId]);
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -537,6 +542,13 @@ export default function Home() {
     } finally {
       setIsExpanding(false);
     }
+  }
+
+  function handleCustomTopicSubmit() {
+    const trimmed = customTopic.trim();
+    if (!trimmed || isExpanding) return;
+    setCustomTopic("");
+    handleSubtopicClick(trimmed);
   }
 
   function handleSubtopicClick(subtopic: string) {
@@ -880,6 +892,26 @@ export default function Home() {
                   </li>
                 ))}
               </ul>
+              <div className="mt-1 flex gap-2">
+                <input
+                  type="text"
+                  value={customTopic}
+                  onChange={(e) => setCustomTopic(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleCustomTopicSubmit(); }}
+                  placeholder="Or explore your own direction…"
+                  disabled={isExpanding}
+                  className="flex-1 min-w-0 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50 px-3 py-2 text-sm text-zinc-800 dark:text-zinc-200 placeholder-zinc-400 dark:placeholder-zinc-500 outline-none focus:ring-2 focus:ring-zinc-400 dark:focus:ring-zinc-600 transition disabled:opacity-50"
+                />
+                <button
+                  onClick={handleCustomTopicSubmit}
+                  disabled={isExpanding || !customTopic.trim()}
+                  className="flex-shrink-0 w-9 flex items-center justify-center rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50 text-zinc-400 dark:text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+                    <path fillRule="evenodd" d="M2 8a.75.75 0 0 1 .75-.75h8.69L8.22 4.03a.75.75 0 0 1 1.06-1.06l4.5 4.5a.75.75 0 0 1 0 1.06l-4.5 4.5a.75.75 0 0 1-1.06-1.06l3.22-3.22H2.75A.75.75 0 0 1 2 8Z" clipRule="evenodd" />
+                  </svg>
+                </button>
+              </div>
             </div>
             <div className="flex flex-col gap-2 pb-2">
               <h3 className="text-xs font-semibold text-zinc-400 dark:text-zinc-600 uppercase tracking-wider">
