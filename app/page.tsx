@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect, type ReactNode } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo, type ReactNode } from "react";
 import { BlockMath, InlineMath } from "react-katex";
 import { type Node, type Edge } from "@xyflow/react";
 import GraphPanel from "./components/GraphPanel";
@@ -42,9 +42,9 @@ type PreviewState =
   | { status: "loading"; subtopic: string; parentId: string; ghostNodeId: string | null }
   | { status: "ready"; subtopic: string; parentId: string; nodeData: NodeData; ghostNodeId: string | null };
 
-const GHOST_SIZE = 12;
-const CIRCLE_SIZE = 14;
-const ROOT_SIZE = 26;
+const GHOST_SIZE = 10;
+const CIRCLE_SIZE = 13;
+const ROOT_SIZE = 22;
 
 const nodeWrapperStyle = (size: number) => ({
   background: "transparent",
@@ -271,15 +271,6 @@ function reconstructGraph(dbNodes: DBNode[]): { nodes: Node[]; edges: Edge[] } {
       });
     }
 
-    const exploredLabels = new Set(
-      (childrenByParent[dbNode.id] ?? []).map((c) => c.topic.toLowerCase())
-    );
-    const unexplored = dbNode.subtopics.filter(
-      (sub) => !exploredLabels.has(sub.toLowerCase())
-    );
-    const { nodes: ghostNodes, edges: ghostEdges } = makeGhosts(dbNode.id, unexplored, dbNode.depth);
-    allNodes.push(...ghostNodes);
-    allEdges.push(...ghostEdges);
   }
 
   const laid = layoutRadial(allNodes, allEdges);
@@ -315,6 +306,24 @@ export default function Home() {
   const abortRef = useRef<AbortController | null>(null);
   const notesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Ghost nodes exist only for the currently active node
+  const { nodes: activeGhostNodes, edges: activeGhostEdges } = useMemo(() => {
+    if (!activeNodeId) return { nodes: [], edges: [] };
+    const activeNode = graphNodes.find((n) => n.id === activeNodeId);
+    if (!activeNode || activeNode.type !== "circle") return { nodes: [], edges: [] };
+    const nodeData = (activeNode.data as { nodeData: NodeData }).nodeData;
+    const exploredLabels = new Set(
+      graphEdges
+        .filter((e) => e.source === activeNodeId)
+        .map((e) => graphNodes.find((n) => n.id === e.target))
+        .filter((n): n is Node => n?.type === "circle")
+        .map((n) => (n.data as { label: string }).label.toLowerCase())
+    );
+    const unexplored = nodeData.subtopics.filter((s) => !exploredLabels.has(s.toLowerCase()));
+    const depth = (activeNode.data as { depth: number }).depth ?? 0;
+    return makeGhosts(activeNodeId, unexplored, depth);
+  }, [activeNodeId, graphNodes, graphEdges]);
 
   const drawerOpen = previewState !== null || activeNodeData !== null;
 
@@ -418,11 +427,8 @@ export default function Home() {
       style: nodeWrapperStyle(ROOT_SIZE),
     };
 
-    const { nodes: ghostNodes, edges: ghostEdges } = makeGhosts(node_id, nodeData.subtopics, 0);
-    const allNodes = [rootNode, ...ghostNodes];
-
-    setGraphNodes(layoutRadial(allNodes, ghostEdges));
-    setGraphEdges(ghostEdges);
+    setGraphNodes([rootNode]);
+    setGraphEdges([]);
     setActiveNodeData(nodeData);
     setActiveNodeId(node_id);
     setNotes("");
@@ -439,9 +445,8 @@ export default function Home() {
     const controller = new AbortController();
     abortRef.current = controller;
 
-    const ghostNode = graphNodes.find(
+    const ghostNode = activeGhostNodes.find(
       (n) =>
-        n.type === "ghost" &&
         (n.data as unknown as GhostNodeData).parentId === parentId &&
         (n.data as unknown as GhostNodeData).label.toLowerCase() === subtopic.toLowerCase()
     );
@@ -515,27 +520,14 @@ export default function Home() {
         style: nodeWrapperStyle(CIRCLE_SIZE),
       };
 
-      const { nodes: newGhostNodes, edges: newGhostEdges } = makeGhosts(newId, nodeData.subtopics, newDepth);
       const realEdge: Edge = {
         id: `edge-${parentId}-${newId}`,
         source: parentId,
         target: newId,
       };
 
-      const ghostToRemove = ghostNodeId
-        ? { id: ghostNodeId }
-        : graphNodes.find(
-            (n) =>
-              n.type === "ghost" &&
-              (n.data as unknown as GhostNodeData).parentId === parentId &&
-              (n.data as unknown as GhostNodeData).label.toLowerCase() === subtopic.toLowerCase()
-          );
-
-      const baseNodes = ghostToRemove ? graphNodes.filter((n) => n.id !== ghostToRemove.id) : graphNodes;
-      const baseEdges = ghostToRemove ? graphEdges.filter((e) => e.target !== ghostToRemove.id) : graphEdges;
-
-      const updatedNodes = [...baseNodes, newNode, ...newGhostNodes];
-      const updatedEdges = [...baseEdges, realEdge, ...newGhostEdges];
+      const updatedNodes = [...graphNodes, newNode];
+      const updatedEdges = [...graphEdges, realEdge];
 
       setGraphNodes(layoutRadial(updatedNodes, updatedEdges));
       setGraphEdges(updatedEdges);
@@ -672,8 +664,8 @@ export default function Home() {
       {/* Graph — full screen */}
       <div className="fixed inset-0 bg-zinc-50 dark:bg-zinc-900">
         <GraphPanel
-          nodes={graphNodes}
-          edges={graphEdges}
+          nodes={[...graphNodes, ...activeGhostNodes]}
+          edges={[...graphEdges, ...activeGhostEdges]}
           activeNodeId={activeNodeId}
           pendingGhostId={previewState?.ghostNodeId ?? null}
           onNodeClick={handleGraphNodeClick}
