@@ -6,11 +6,14 @@ import { type Node, type Edge } from "@xyflow/react";
 import GraphPanel from "./components/GraphPanel";
 import { logout } from "./actions/auth";
 
+type Source = { title: string; url: string };
+
 type NodeData = {
   topic: string;
   summary: string;
   brief: string;
   subtopics: string[];
+  sources: Source[];
 };
 
 type GhostNodeData = {
@@ -33,6 +36,7 @@ type DBNode = {
   summary: string;
   brief: string;
   subtopics: string[];
+  sources: Source[];
   notes?: string;
   ancestor_ids: string[];
   depth: number;
@@ -63,6 +67,14 @@ const ghostWrapperStyle = {
   height: GHOST_SIZE,
 };
 
+export function orbitalRadius(depth: number): number {
+  if (depth <= 0) return 0;
+  if (depth === 1) return 150;
+  if (depth === 2) return 280;
+  if (depth === 3) return 420;
+  return 420 + (depth - 3) * 140;
+}
+
 function layoutRadial(nodes: Node[], edges: Edge[]): Node[] {
   if (nodes.length === 0) return nodes;
 
@@ -83,7 +95,6 @@ function layoutRadial(nodes: Node[], edges: Edge[]): Node[] {
   if (!root) return nodes;
 
   const pos: Record<string, { x: number; y: number }> = { [root.id]: { x: 0, y: 0 } };
-  const STEP = 160;
 
   // Subtree leaf count for proportional angle allocation
   const leafCount: Record<string, number> = {};
@@ -103,7 +114,8 @@ function layoutRadial(nodes: Node[], edges: Edge[]): Node[] {
     for (const cid of ch) {
       const span = ((leafCount[cid] ?? 1) / total) * (a1 - a0);
       const mid = a + span / 2;
-      pos[cid] = { x: (d + 1) * STEP * Math.cos(mid), y: (d + 1) * STEP * Math.sin(mid) };
+      const r = orbitalRadius(d + 1);
+      pos[cid] = { x: r * Math.cos(mid), y: r * Math.sin(mid) };
       place(cid, a, a + span, d + 1);
       a += span;
     }
@@ -311,6 +323,7 @@ function reconstructGraph(dbNodes: DBNode[]): { nodes: Node[]; edges: Edge[] } {
           summary: dbNode.summary,
           brief: dbNode.brief,
           subtopics: dbNode.subtopics,
+          sources: dbNode.sources ?? [],
         },
       },
       style: nodeWrapperStyle(size),
@@ -345,16 +358,18 @@ export default function Home() {
     { label: string; description: string }[] | null
   >(null);
 
-  const [sidebarHovered, setSidebarHovered] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const [graphNodes, setGraphNodes] = useState<Node[]>([]);
   const [graphEdges, setGraphEdges] = useState<Edge[]>([]);
   const [activeNodeData, setActiveNodeData] = useState<NodeData | null>(null);
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
+  const [fitViewTrigger, setFitViewTrigger] = useState(0);
   const [isExpanding, setIsExpanding] = useState(false);
   const [previewState, setPreviewState] = useState<PreviewState | null>(null);
   const [notes, setNotes] = useState("");
   const [customTopic, setCustomTopic] = useState("");
+  const [summaryExpanded, setSummaryExpanded] = useState(false);
   const [nodeDeleteConfirm, setNodeDeleteConfirm] = useState(false);
   const [isDeletingNode, setIsDeletingNode] = useState(false);
   const [confirmDeleteTreeId, setConfirmDeleteTreeId] = useState<string | null>(null);
@@ -417,9 +432,10 @@ export default function Home() {
       setGraphEdges(edges);
       const root = dbNodes.find((n) => n.depth === 0);
       if (root) {
-        setActiveNodeData({ topic: root.topic, summary: root.summary, brief: root.brief, subtopics: root.subtopics });
+        setActiveNodeData({ topic: root.topic, summary: root.summary, brief: root.brief, subtopics: root.subtopics, sources: root.sources ?? [] });
         setActiveNodeId(root.id);
         setNotes(root.notes ?? "");
+        setFitViewTrigger((n) => n + 1);
       }
     } finally {
       setIsLoadingGraph(false);
@@ -659,6 +675,7 @@ export default function Home() {
     setActiveNodeData(null);
     setActiveNodeId(null);
     setNodeDeleteConfirm(false);
+    setSummaryExpanded(false);
   }
 
   async function handleDeleteNode() {
@@ -744,6 +761,7 @@ export default function Home() {
           nodes={[...graphNodes, ...activeGhostNodes]}
           edges={[...graphEdges, ...activeGhostEdges]}
           activeNodeId={activeNodeId}
+          fitViewTrigger={fitViewTrigger}
           pendingGhostId={previewState?.ghostNodeId ?? null}
           onNodeClick={handleGraphNodeClick}
         />
@@ -760,24 +778,28 @@ export default function Home() {
 
       {/* Left sidebar */}
       <aside
-        onMouseEnter={() => setSidebarHovered(true)}
-        onMouseLeave={() => setSidebarHovered(false)}
         className={`fixed left-0 top-0 h-screen z-30 flex flex-col bg-white/95 dark:bg-zinc-900/95 backdrop-blur-sm border-r border-zinc-200 dark:border-zinc-800 transition-[width] duration-200 ease-in-out overflow-hidden ${
-          sidebarHovered ? "w-64" : "w-12"
+          sidebarOpen ? "w-64" : "w-12"
         }`}
       >
-        {/* Add button */}
+        {/* Toggle button */}
         <div className="h-12 flex-shrink-0 flex items-center border-b border-zinc-200 dark:border-zinc-800">
           <button
-            onClick={() => { setSidebarHovered(false); setShowModal(true); setApiError(null); }}
+            onClick={() => setSidebarOpen((o) => !o)}
             className="w-12 h-12 flex items-center justify-center flex-shrink-0 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors"
-            title="Add topic"
+            title={sidebarOpen ? "Close panel" : "Open panel"}
           >
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
-              <path d="M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5v-3.5Z" />
-            </svg>
+            {sidebarOpen ? (
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+                <path fillRule="evenodd" d="M9.78 4.22a.75.75 0 0 1 0 1.06L7.06 8l2.72 2.72a.75.75 0 1 1-1.06 1.06L5.47 8.53a.75.75 0 0 1 0-1.06l3.25-3.25a.75.75 0 0 1 1.06 0Z" clipRule="evenodd" />
+              </svg>
+            ) : (
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+                <path fillRule="evenodd" d="M6.22 4.22a.75.75 0 0 1 1.06 0l3.25 3.25a.75.75 0 0 1 0 1.06l-3.25 3.25a.75.75 0 0 1-1.06-1.06L8.94 8 6.22 5.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
+              </svg>
+            )}
           </button>
-          {sidebarHovered && (
+          {sidebarOpen && (
             <span className="text-xs font-semibold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider whitespace-nowrap select-none">
               Topics
             </span>
@@ -788,11 +810,11 @@ export default function Home() {
         <ul className="flex-1 overflow-y-auto py-1">
           {isLoadingTrees ? (
             <li className="h-9 flex items-center px-3">
-              {sidebarHovered && <span className="text-xs text-zinc-400 dark:text-zinc-500">Loading…</span>}
+              {sidebarOpen && <span className="text-xs text-zinc-400 dark:text-zinc-500">Loading…</span>}
             </li>
           ) : trees.length === 0 ? (
             <li className="h-9 flex items-center px-3">
-              {sidebarHovered && (
+              {sidebarOpen && (
                 <span className="text-xs text-zinc-400 dark:text-zinc-500 whitespace-nowrap">No topics yet.</span>
               )}
             </li>
@@ -801,7 +823,7 @@ export default function Home() {
               <li key={tree.id}>
                 {confirmDeleteTreeId === tree.id ? (
                   <div className="flex items-center h-9 px-3 gap-1.5 bg-red-50 dark:bg-red-950/40">
-                    {sidebarHovered ? (
+                    {sidebarOpen ? (
                       <>
                         <span className="flex-1 text-xs text-red-600 dark:text-red-400 truncate">Delete?</span>
                         <button
@@ -836,11 +858,11 @@ export default function Home() {
                           activeTreeId === tree.id ? "bg-violet-500" : "bg-zinc-300 dark:bg-zinc-600"
                         }`}
                       />
-                      {sidebarHovered && (
+                      {sidebarOpen && (
                         <span className="text-sm truncate whitespace-nowrap">{tree.topic}</span>
                       )}
                     </button>
-                    {sidebarHovered && (
+                    {sidebarOpen && (
                       <button
                         onClick={() => setConfirmDeleteTreeId(tree.id)}
                         className="flex-shrink-0 w-7 h-full flex items-center justify-center text-zinc-300 dark:text-zinc-600 hover:text-red-500 dark:hover:text-red-400 transition-colors pr-2"
@@ -858,17 +880,43 @@ export default function Home() {
           )}
         </ul>
 
+        {/* Add topic — bottom of list */}
+        <div className="flex-shrink-0 flex justify-center px-2 py-3">
+          {sidebarOpen ? (
+            <button
+              onClick={() => { setShowModal(true); setApiError(null); }}
+              className="flex items-center justify-center gap-2 w-full py-2 rounded-full bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium transition-colors shadow-sm"
+              title="Add topic"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4 flex-shrink-0">
+                <path d="M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5v-3.5Z" />
+              </svg>
+              New topic
+            </button>
+          ) : (
+            <button
+              onClick={() => { setShowModal(true); setApiError(null); }}
+              className="w-10 h-10 rounded-full bg-violet-600 hover:bg-violet-700 text-white flex items-center justify-center shadow-sm transition-colors"
+              title="Add topic"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+                <path d="M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5v-3.5Z" />
+              </svg>
+            </button>
+          )}
+        </div>
+
         {/* Sign out */}
         <div className="flex-shrink-0 border-t border-zinc-200 dark:border-zinc-800">
           <form action={logout}>
             <button
               type="submit"
-              className="w-full h-12 flex items-center gap-3 px-3 text-zinc-400 dark:text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors"
+              className="w-full h-11 flex items-center gap-3 px-3 text-zinc-400 dark:text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors"
             >
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4 flex-shrink-0">
                 <path fillRule="evenodd" d="M2 4.75A2.75 2.75 0 0 1 4.75 2h3a2.75 2.75 0 0 1 2.75 2.75v.5a.75.75 0 0 1-1.5 0v-.5c0-.69-.56-1.25-1.25-1.25h-3C4.06 3.5 3.5 4.06 3.5 4.75v6.5c0 .69.56 1.25 1.25 1.25h3c.69 0 1.25-.56 1.25-1.25v-.5a.75.75 0 0 1 1.5 0v.5A2.75 2.75 0 0 1 7.75 14h-3A2.75 2.75 0 0 1 2 11.25v-6.5Zm9.47.47a.75.75 0 0 1 1.06 0l2.25 2.25a.75.75 0 0 1 0 1.06l-2.25 2.25a.75.75 0 1 1-1.06-1.06l.97-.97H6.75a.75.75 0 0 1 0-1.5h5.69l-.97-.97a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
               </svg>
-              {sidebarHovered && <span className="text-xs whitespace-nowrap">Sign out</span>}
+              {sidebarOpen && <span className="text-xs whitespace-nowrap">Sign out</span>}
             </button>
           </form>
         </div>
@@ -876,23 +924,40 @@ export default function Home() {
 
       {/* Right drawer */}
       <aside
-        className={`fixed right-0 top-0 h-screen w-[420px] max-w-[85vw] z-30 flex flex-col bg-white/95 dark:bg-zinc-900/95 backdrop-blur-sm border-l border-zinc-200 dark:border-zinc-800 transition-transform duration-200 ease-in-out ${
+        className={`fixed right-0 top-0 h-screen flex flex-col bg-white/95 dark:bg-zinc-900/95 backdrop-blur-sm border-l border-zinc-200 dark:border-zinc-800 transition-all duration-200 ease-in-out ${
           drawerOpen ? "translate-x-0" : "translate-x-full"
-        }`}
+        } ${summaryExpanded ? "z-40 w-screen border-l-0" : "z-30 w-[420px] max-w-[85vw]"}`}
       >
         {/* Drawer header */}
         <div className="h-12 flex-shrink-0 flex items-center justify-between px-4 border-b border-zinc-200 dark:border-zinc-800">
           <h2 className="text-sm font-medium text-zinc-500 dark:text-zinc-400 truncate pr-3">
             {trees.find((t) => t.id === activeTreeId)?.topic ?? ""}
           </h2>
-          <button
-            onClick={handleDismissDrawer}
-            className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
-              <path d="M5.28 4.22a.75.75 0 0 0-1.06 1.06L6.94 8l-2.72 2.72a.75.75 0 1 0 1.06 1.06L8 9.06l2.72 2.72a.75.75 0 1 0 1.06-1.06L9.06 8l2.72-2.72a.75.75 0 0 0-1.06-1.06L8 6.94 5.28 4.22Z" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            <button
+              onClick={() => setSummaryExpanded((e) => !e)}
+              className="w-6 h-6 flex items-center justify-center rounded text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+              title={summaryExpanded ? "Collapse" : "Expand"}
+            >
+              {summaryExpanded ? (
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+                  <path fillRule="evenodd" d="M6.22 4.22a.75.75 0 0 1 1.06 0l1.97 1.97V4.75a.75.75 0 0 1 1.5 0v3a.75.75 0 0 1-.75.75h-3a.75.75 0 0 1 0-1.5h1.44L6.22 5.28a.75.75 0 0 1 0-1.06Zm3.56 7.56a.75.75 0 0 1-1.06 0L6.75 9.81v1.44a.75.75 0 0 1-1.5 0v-3A.75.75 0 0 1 6 7.5h3a.75.75 0 0 1 0 1.5H7.56l1.97 1.97a.75.75 0 0 1 0 1.06Z" clipRule="evenodd" />
+                </svg>
+              ) : (
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+                  <path fillRule="evenodd" d="M1.75 1h4.5a.75.75 0 0 1 .75.75v3a.75.75 0 0 1-1.5 0V2.56L3.28 4.78a.75.75 0 0 1-1.06-1.06l2.22-2.22H2.5a.75.75 0 0 1 0-1.5Zm8 0h4.5a.75.75 0 0 1 0 1.5h-1.94l2.22 2.22a.75.75 0 0 1-1.06 1.06L11.25 3.56v1.19a.75.75 0 0 1-1.5 0v-3A.75.75 0 0 1 9.75 1ZM1 9.75A.75.75 0 0 1 1.75 9h3a.75.75 0 0 1 0 1.5H3.56l2.22 2.22a.75.75 0 1 1-1.06 1.06L2.5 11.56v1.19a.75.75 0 0 1-1.5 0v-4.5Zm13.25-.75a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-1.5 0v-1.19l-2.22 2.22a.75.75 0 1 1-1.06-1.06l2.22-2.22H11a.75.75 0 0 1 0-1.5h3.25Z" clipRule="evenodd" />
+                </svg>
+              )}
+            </button>
+            <button
+              onClick={handleDismissDrawer}
+              className="w-6 h-6 flex items-center justify-center rounded text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+                <path d="M5.28 4.22a.75.75 0 0 0-1.06 1.06L6.94 8l-2.72 2.72a.75.75 0 1 0 1.06 1.06L8 9.06l2.72 2.72a.75.75 0 1 0 1.06-1.06L9.06 8l2.72-2.72a.75.75 0 0 0-1.06-1.06L8 6.94 5.28 4.22Z" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         {/* Drawer body */}
@@ -919,6 +984,30 @@ export default function Home() {
                   {splitSummaryBlocks(previewState.nodeData.summary).map(renderSummaryBlock)}
                 </div>
               </div>
+              {previewState.nodeData.sources?.length > 0 && (
+                <div className="flex flex-col gap-2">
+                  <h3 className="text-xs font-semibold text-zinc-400 dark:text-zinc-600 uppercase tracking-wider">
+                    Sources
+                  </h3>
+                  <ul className="flex flex-col gap-1">
+                    {previewState.nodeData.sources.map((src, i) => (
+                      <li key={i}>
+                        <a
+                          href={src.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-start gap-2 px-3 py-2 rounded-lg text-sm text-zinc-500 dark:text-zinc-400 hover:text-violet-600 dark:hover:text-violet-400 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors group"
+                        >
+                          <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 opacity-50 group-hover:opacity-100">
+                            <path d="M5.5 2H2a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1V8.5M8.5 1H13m0 0v4.5M13 1 6.5 7.5" />
+                          </svg>
+                          <span className="leading-snug">{src.title}</span>
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
             <div className="px-6 py-4 border-t border-zinc-200 dark:border-zinc-700 flex-shrink-0">
               <button
@@ -978,6 +1067,30 @@ export default function Home() {
                 </button>
               </div>
             </div>
+            {activeNodeData.sources?.length > 0 && (
+              <div className="flex flex-col gap-2">
+                <h3 className="text-xs font-semibold text-zinc-400 dark:text-zinc-600 uppercase tracking-wider">
+                  Sources
+                </h3>
+                <ul className="flex flex-col gap-1">
+                  {activeNodeData.sources.map((src, i) => (
+                    <li key={i}>
+                      <a
+                        href={src.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-start gap-2 px-3 py-2 rounded-lg text-sm text-zinc-500 dark:text-zinc-400 hover:text-violet-600 dark:hover:text-violet-400 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors group"
+                      >
+                        <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 opacity-50 group-hover:opacity-100">
+                          <path d="M5.5 2H2a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1V8.5M8.5 1H13m0 0v4.5M13 1 6.5 7.5" />
+                        </svg>
+                        <span className="leading-snug">{src.title}</span>
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <div className="flex flex-col gap-2 pb-2">
               <h3 className="text-xs font-semibold text-zinc-400 dark:text-zinc-600 uppercase tracking-wider">
                 Notes

@@ -2,21 +2,10 @@ import Groq from "groq-sdk";
 import { NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { groqJsonCall } from "@/lib/groq";
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 const SYSTEM_PROMPT = process.env.SYSTEM_PROMPT ?? "";
-
-function parseContent(content: string): Record<string, unknown> {
-  try {
-    return JSON.parse(content);
-  } catch {
-    const match = content.match(/\{[\s\S]*\}/);
-    if (match) {
-      try { return JSON.parse(match[0]); } catch {}
-    }
-    return {};
-  }
-}
 
 export async function GET() {
   const supabase = await createClient();
@@ -47,20 +36,21 @@ export async function POST(request: NextRequest) {
     (_: string, key: string) => String(promptData[key as keyof typeof promptData] ?? "")
   );
 
-  const completion = await groq.chat.completions.create({
-    model: "llama-3.3-70b-versatile",
-    response_format: { type: "json_object" },
-    messages: [
+  type Source = { title: string; url: string };
+  let raw: { topic?: string; summary?: string; brief?: string; subtopics?: string[]; sources?: Source[] };
+  try {
+    raw = await groqJsonCall(groq, "llama-3.3-70b-versatile", [
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: userMessage },
-    ],
-  });
-
-  const raw = parseContent(completion.choices[0].message.content ?? "{}") as { topic?: string; summary?: string; brief?: string; subtopics?: string[] };
+    ]) as typeof raw;
+  } catch (err) {
+    return Response.json({ error: String(err) }, { status: 502 });
+  }
   const nodeTopic = raw.topic ?? "";
   const nodeSummary = raw.summary ?? "";
   const nodeBrief = raw.brief ?? "";
   const nodeSubtopics = raw.subtopics ?? [];
+  const nodeSources: Source[] = Array.isArray(raw.sources) ? raw.sources : [];
 
   const { data: tree, error: treeError } = await supabase
     .from("trees")
@@ -79,6 +69,7 @@ export async function POST(request: NextRequest) {
       summary: nodeSummary,
       brief: nodeBrief,
       subtopics: nodeSubtopics,
+      sources: nodeSources,
       ancestor_ids: [],
       depth: 0,
       query: originalInput ?? "",
@@ -88,7 +79,7 @@ export async function POST(request: NextRequest) {
 
   if (nodeError) return Response.json({ error: nodeError.message }, { status: 500 });
 
-  return Response.json({ topic: nodeTopic, summary: nodeSummary, brief: nodeBrief, subtopics: nodeSubtopics, tree_id: tree.id, node_id: node.id });
+  return Response.json({ topic: nodeTopic, summary: nodeSummary, brief: nodeBrief, subtopics: nodeSubtopics, sources: nodeSources, tree_id: tree.id, node_id: node.id });
 }
 
 export async function DELETE(request: NextRequest) {

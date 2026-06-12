@@ -1,21 +1,10 @@
 import Groq from "groq-sdk";
 import { NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { groqJsonCall } from "@/lib/groq";
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 const SYSTEM_PROMPT = process.env.SYSTEM_PROMPT ?? "";
-
-function parseContent(content: string): Record<string, unknown> {
-  try {
-    return JSON.parse(content);
-  } catch {
-    const match = content.match(/\{[\s\S]*\}/);
-    if (match) {
-      try { return JSON.parse(match[0]); } catch {}
-    }
-    return {};
-  }
-}
 
 export async function GET(request: NextRequest) {
   const tree_id = new URL(request.url).searchParams.get("tree_id");
@@ -51,15 +40,17 @@ export async function POST(request: NextRequest) {
   // Propagate query from parent if caller didn't supply it
   const query: string = requestQuery ?? parentNode?.query ?? "";
 
-  let nodeData: { topic: string; summary: string; brief: string; subtopics: string[] };
+  type Source = { title: string; url: string };
+  let nodeData: { topic: string; summary: string; brief: string; subtopics: string[]; sources: Source[] };
 
   if (preGenerated) {
-    const p = preGenerated as { topic?: string; summary?: string; brief?: string; subtopics?: string[] };
+    const p = preGenerated as { topic?: string; summary?: string; brief?: string; subtopics?: string[]; sources?: Source[] };
     nodeData = {
       topic: p.topic ?? "",
       summary: p.summary ?? "",
       brief: p.brief ?? "",
       subtopics: p.subtopics ?? [],
+      sources: p.sources ?? [],
     };
   } else {
     const template = process.env.USER_PROMPT ?? topic;
@@ -73,21 +64,21 @@ export async function POST(request: NextRequest) {
       ? `[User's original question: "${query}"]\n\n${baseMessage}`
       : baseMessage;
 
-    const completion = await groq.chat.completions.create({
-      model: "llama-3.3-70b-versatile",
-      response_format: { type: "json_object" },
-      messages: [
+    let raw: { topic?: string; summary?: string; brief?: string; subtopics?: string[]; sources?: Source[] };
+    try {
+      raw = await groqJsonCall(groq, "llama-3.3-70b-versatile", [
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: userMessage },
-      ],
-    });
-
-    const raw = parseContent(completion.choices[0].message.content ?? "{}") as { topic?: string; summary?: string; brief?: string; subtopics?: string[] };
+      ]) as typeof raw;
+    } catch (err) {
+      return Response.json({ error: String(err) }, { status: 502 });
+    }
     nodeData = {
       topic: raw.topic ?? "",
       summary: raw.summary ?? "",
       brief: raw.brief ?? "",
       subtopics: raw.subtopics ?? [],
+      sources: Array.isArray(raw.sources) ? raw.sources : [],
     };
   }
 
@@ -105,6 +96,7 @@ export async function POST(request: NextRequest) {
       summary: nodeData.summary,
       brief: nodeData.brief,
       subtopics: nodeData.subtopics,
+      sources: nodeData.sources,
       ancestor_ids: ancestorIds,
       depth,
       query,

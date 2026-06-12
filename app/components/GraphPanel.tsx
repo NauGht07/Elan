@@ -7,6 +7,9 @@ import {
   Position,
   useNodesState,
   applyNodeChanges,
+  useReactFlow,
+  useViewport,
+  Panel,
   type Node,
   type Edge,
   type NodeTypes,
@@ -19,17 +22,17 @@ import {
   forceLink,
   forceManyBody,
   forceCollide,
-  forceX,
-  forceY,
   type Simulation,
 } from "d3-force";
+import { orbitalRadius } from "../page";
 
 const KEYFRAMES = `
   @keyframes nodeEnter {
-    0%   { opacity: 0; transform: scale(0); }
-    60%  { opacity: 1; transform: scale(1.18); }
-    78%  { transform: scale(0.94); }
-    100% { opacity: 1; transform: scale(1); }
+    0%   { opacity: 0; transform: scale(0); filter: brightness(1); }
+    35%  { opacity: 1; transform: scale(1.5);  filter: brightness(2.2); }
+    60%  { transform: scale(0.88); filter: brightness(1); }
+    80%  { transform: scale(1.1); }
+    100% { opacity: 1; transform: scale(1); filter: brightness(1); }
   }
 `;
 
@@ -72,8 +75,7 @@ type SimNode = {
   vy: number;
   fx?: number | null;
   fy?: number | null;
-  tx: number;  // radial target x from layout
-  ty: number;  // radial target y from layout
+  depth: number;
   isRoot: boolean;
   isGhost: boolean;
 };
@@ -217,16 +219,137 @@ const defaultEdgeOptions = {
   style: { stroke: "#52525b", strokeWidth: 1 },
 };
 
+// Lives inside the ReactFlow context — can use useReactFlow
+function CameraController({
+  activeNodeId,
+  fitViewTrigger,
+}: {
+  activeNodeId: string | null;
+  fitViewTrigger: number;
+}) {
+  const { fitView, setCenter, getNode, getNodes } = useReactFlow();
+  const prevActiveId = useRef<string | null>(null);
+  const prevFitTrigger = useRef(0);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    const fitChanged = fitViewTrigger !== prevFitTrigger.current;
+    const activeChanged = activeNodeId !== prevActiveId.current;
+
+    if (fitChanged) prevFitTrigger.current = fitViewTrigger;
+    if (activeChanged) prevActiveId.current = activeNodeId;
+
+    // fitViewTrigger wins — called on tree load to show the whole graph
+    if (fitChanged && fitViewTrigger > 0) {
+      setTimeout(() => fitView({ duration: 600, padding: 0.2 }), 80);
+      return;
+    }
+
+    if (!activeChanged || !activeNodeId) return;
+
+    if (timerRef.current) clearTimeout(timerRef.current);
+    // Read position after the simulation has had time to settle.
+    // getNode pulls from the live React Flow store which gets D3-pushed positions.
+    timerRef.current = setTimeout(() => {
+      const node = getNode(activeNodeId);
+      if (!node) return;
+      const circleCount = getNodes().filter((n) => n.type === "circle").length;
+      const w = node.width ?? 13;
+      const h = node.height ?? 13;
+      if (circleCount <= 1) {
+        fitView({ duration: 500, padding: 0.5 });
+      } else {
+        setCenter(node.position.x + w / 2, node.position.y + h / 2, { zoom: 1.2, duration: 600 });
+      }
+    }, 400);
+  }, [activeNodeId, fitViewTrigger, fitView, setCenter, getNode, getNodes]);
+
+  return null;
+}
+
+function FitViewButton() {
+  const { fitView } = useReactFlow();
+  const [hovered, setHovered] = useState(false);
+  return (
+    <button
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onClick={() => fitView({ duration: 600, padding: 0.15 })}
+      style={{
+        background: hovered ? "rgba(39,39,42,0.92)" : "rgba(24,24,27,0.82)",
+        border: "1px solid #3f3f46",
+        borderRadius: 8,
+        color: hovered ? "#e4e4e7" : "#a1a1aa",
+        cursor: "pointer",
+        padding: "5px 10px",
+        fontSize: 11,
+        fontWeight: 500,
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        backdropFilter: "blur(6px)",
+        transition: "color 0.15s, background 0.15s",
+        userSelect: "none",
+      }}
+    >
+      <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: 12, height: 12 }}>
+        <path d="M1 5V1h4M9 1h4v4M13 9v4H9M5 13H1V9" />
+      </svg>
+      Fit
+    </button>
+  );
+}
+
+function OrbitalRings({
+  occupiedDepths,
+  rootPos,
+}: {
+  occupiedDepths: number[];
+  rootPos: { x: number; y: number };
+}) {
+  const { x, y, zoom } = useViewport();
+  if (occupiedDepths.length === 0) return null;
+  return (
+    <svg
+      style={{
+        position: "absolute",
+        inset: 0,
+        width: "100%",
+        height: "100%",
+        pointerEvents: "none",
+        overflow: "visible",
+        zIndex: 0,
+      }}
+    >
+      <g transform={`translate(${x},${y}) scale(${zoom})`}>
+        {occupiedDepths.map((depth) => (
+          <circle
+            key={depth}
+            cx={rootPos.x}
+            cy={rootPos.y}
+            r={orbitalRadius(depth)}
+            fill="none"
+            stroke="rgba(167,139,250,0.07)"
+            strokeWidth={1.5 / zoom}
+          />
+        ))}
+      </g>
+    </svg>
+  );
+}
+
 export default function GraphPanel({
   nodes,
   edges,
   activeNodeId,
+  fitViewTrigger,
   pendingGhostId,
   onNodeClick,
 }: {
   nodes: Node[];
   edges: Edge[];
   activeNodeId: string | null;
+  fitViewTrigger: number;
   pendingGhostId: string | null;
   onNodeClick: (id: string, nodeType: string, data: Record<string, unknown>) => void;
 }) {
@@ -332,39 +455,41 @@ export default function GraphPanel({
     const prevPosMap = new Map(simNodesRef.current.map((n) => [n.id, n]));
     const existingIds = new Set(prevPosMap.keys());
 
+    // Root's current position is the orbital origin for the whole system
+    const prevRoot = Array.from(prevPosMap.values()).find((n) => n.isRoot);
+    const rootX = prevRoot?.x ?? 0;
+    const rootY = prevRoot?.y ?? 0;
+
     const newSimNodes: SimNode[] = currentNodes.map((node) => {
       const isRoot = !!(node.data as { isRoot?: boolean }).isRoot;
       const isGhost = node.type === "ghost";
-      // Ghost nodes don't go through layoutRadial, so their position is 0,0.
-      // Use target 0,0 for them — the link force handles their placement.
-      const tx = isGhost ? 0 : (node.position.x ?? 0);
-      const ty = isGhost ? 0 : (node.position.y ?? 0);
+      const depth = (node.data as { depth?: number }).depth ?? 0;
 
       const existing = prevPosMap.get(node.id);
       if (existing) {
-        // Update target positions — layout may have shifted existing nodes
-        existing.tx = tx;
-        existing.ty = ty;
+        existing.depth = depth;
         existing.isRoot = isRoot;
         existing.isGhost = isGhost;
-        if (isRoot) { existing.fx = 0; existing.fy = 0; }
         return existing;
       }
 
-      // Root always starts pinned at center
+      // Brand-new root — pin at center to start
       if (isRoot) {
-        return { id: node.id, x: 0, y: 0, vx: 0, vy: 0, fx: 0, fy: 0, tx: 0, ty: 0, isRoot: true, isGhost: false };
+        return { id: node.id, x: 0, y: 0, vx: 0, vy: 0, fx: 0, fy: 0, depth: 0, isRoot: true, isGhost: false };
       }
 
-      // New non-root node — spawn at parent's current position, burst outward
+      // New non-root node — spawn at parent, burst radially away from root (electron jump)
       const parentEdge = currentEdges.find((e) => e.target === node.id);
       const parentSim = parentEdge ? prevPosMap.get(parentEdge.source) : null;
-      const px = parentSim?.x ?? tx;
-      const py = parentSim?.y ?? ty;
+      const px = parentSim?.x ?? node.position.x ?? rootX;
+      const py = parentSim?.y ?? node.position.y ?? rootY;
 
-      const len = Math.sqrt(px * px + py * py);
-      const angle = len > 1 ? Math.atan2(py, px) : Math.random() * Math.PI * 2;
-      const speed = isGhost ? 3 : 5 + Math.random() * 2;
+      const dx = px - rootX;
+      const dy = py - rootY;
+      const len = Math.sqrt(dx * dx + dy * dy);
+      const angle = len > 1 ? Math.atan2(dy, dx) : Math.random() * Math.PI * 2;
+      // Ghost nodes drift gently; circle nodes burst outward to their orbital
+      const speed = isGhost ? 2 : 10 + Math.random() * 4;
 
       return {
         id: node.id,
@@ -374,8 +499,7 @@ export default function GraphPanel({
         vy: Math.sin(angle) * speed,
         fx: null,
         fy: null,
-        tx,
-        ty,
+        depth,
         isRoot: false,
         isGhost,
       };
@@ -417,30 +541,58 @@ export default function GraphPanel({
                 typeof link.target === "object"
                   ? (link.target as SimNode).id
                   : (link.target as string);
-              return nodesRef.current.find((n) => n.id === tid)?.type === "ghost" ? 0.9 : 0.15;
+              return nodesRef.current.find((n) => n.id === tid)?.type === "ghost" ? 0.9 : 0.08;
             })
         )
         .force(
           "charge",
           forceManyBody<SimNode>().strength((d) => {
             if ((d as SimNode).isGhost) return -25;
-            return (d as SimNode).isRoot ? -60 : -90;
+            return (d as SimNode).isRoot ? -60 : -500;
           })
         )
-        // Pull each circle node toward its precomputed radial ring position
-        .force(
-          "radialX",
-          forceX<SimNode>((d) => d.tx).strength((d) => (d.isRoot || d.isGhost) ? 0 : 0.8)
-        )
-        .force(
-          "radialY",
-          forceY<SimNode>((d) => d.ty).strength((d) => (d.isRoot || d.isGhost) ? 0 : 0.8)
-        )
+        // Pull each node to orbitalRadius(depth) away from the root's live position
+        .force("orbital", (alpha: number) => {
+          const root = simNodesRef.current.find((n) => n.isRoot);
+          if (!root) return;
+          const rx = root.x, ry = root.y;
+          for (const n of simNodesRef.current) {
+            if (n.isRoot || n.isGhost) continue;
+            const dx = n.x - rx;
+            const dy = n.y - ry;
+            const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+            const target = orbitalRadius(n.depth);
+            // Floor prevents the force from scaling to ~zero at idle alpha (0.008).
+            // forceCollide runs at full strength regardless of alpha, so without
+            // the floor it easily wins and nodes drift off their rings.
+            const k = Math.max(0.2, alpha) * 4.0 * (target - dist) / dist;
+            n.vx += dx * k;
+            n.vy += dy * k;
+          }
+        })
         .force(
           "collision",
-          forceCollide<SimNode>((d) => (d as SimNode).isGhost ? 10 : 18).strength(0.7)
+          forceCollide<SimNode>((d) => (d as SimNode).isGhost ? 10 : 60).strength(1.0)
         )
-        .velocityDecay(0.45)
+        // Tangential drift relative to root so nodes float along their orbital
+        .force("tangential", (alpha: number) => {
+          const root = simNodesRef.current.find((n) => n.isRoot);
+          if (!root) return;
+          // Idle floor: at alphaTarget (~0.008) the physics term nearly vanishes,
+          // so the floor takes over and keeps a constant barely-perceptible drift.
+          // During interaction alpha rises (0.3–0.6) and physics eclipses the floor.
+          const strength = Math.max(0.04, 0.18 * alpha);
+          for (const n of simNodesRef.current) {
+            if (n.isRoot || n.isGhost) continue;
+            const dx = n.x - root.x;
+            const dy = n.y - root.y;
+            const r = Math.sqrt(dx * dx + dy * dy);
+            if (r < 1) continue;
+            n.vx += (-dy / r) * strength;
+            n.vy += ( dx / r) * strength;
+          }
+        })
+        .velocityDecay(0.48)
         .alphaDecay(0.012)
         .alphaTarget(0.008)
         .alpha(1);
@@ -486,6 +638,19 @@ export default function GraphPanel({
     return n;
   });
 
+  // Collect unique depths of occupied orbitals (circle nodes only, excluding root)
+  const occupiedDepths = Array.from(
+    new Set(
+      nodes
+        .filter((n) => n.type === "circle" && (n.data as { depth?: number }).depth! > 0)
+        .map((n) => (n.data as { depth: number }).depth)
+    )
+  ).sort((a, b) => a - b);
+
+  // Root's current position in graph space — orbitals are centered here
+  const rootRfNode = rfNodes.find((n) => !!(n.data as { isRoot?: boolean }).isRoot);
+  const rootPos = rootRfNode?.position ?? { x: 0, y: 0 };
+
   const handleNodeClick: NodeMouseHandler = (_, node) => {
     onNodeClick(node.id, node.type ?? "circle", node.data as Record<string, unknown>);
   };
@@ -525,9 +690,11 @@ export default function GraphPanel({
       const sn = simNodesRef.current.find((n) => n.id === node.id);
       if (sn) {
         if (sn.isRoot) {
-          // Root stays pinned at center
-          sn.fx = 0;
-          sn.fy = 0;
+          // Pin root at drop position so the whole system stays where placed
+          sn.fx = sn.x;
+          sn.fy = sn.y;
+          sn.vx = 0;
+          sn.vy = 0;
         } else {
           sn.fx = null;
           sn.fy = null;
@@ -554,7 +721,6 @@ export default function GraphPanel({
         onNodeDragStart={handleNodeDragStart}
         onNodeDrag={handleNodeDrag}
         onNodeDragStop={handleNodeDragStop}
-        fitView
         proOptions={{ hideAttribution: true }}
         nodesDraggable={true}
         nodesConnectable={false}
@@ -564,7 +730,16 @@ export default function GraphPanel({
         zoomOnDoubleClick={false}
         minZoom={0.15}
         maxZoom={4}
-      />
+      >
+        <CameraController
+          activeNodeId={activeNodeId}
+          fitViewTrigger={fitViewTrigger}
+        />
+        <OrbitalRings occupiedDepths={occupiedDepths} rootPos={rootPos} />
+        <Panel position="bottom-right">
+          <FitViewButton />
+        </Panel>
+      </ReactFlow>
     </div>
   );
 }
