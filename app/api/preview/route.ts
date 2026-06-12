@@ -18,7 +18,7 @@ function parseContent(content: string): Record<string, unknown> {
 }
 
 export async function POST(request: NextRequest) {
-  const { topic, brief_list = [] } = await request.json();
+  const { topic, brief_list = [], query = "" } = await request.json();
 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -27,10 +27,13 @@ export async function POST(request: NextRequest) {
   const template = process.env.USER_PROMPT ?? topic;
   const briefs: string[] = (Array.isArray(brief_list) ? brief_list : []).slice(-8);
   const promptData = { topic, brief_list: briefs.length > 0 ? briefs.join("\n- ") : "" };
-  const userMessage = template.replace(
+  const baseMessage = template.replace(
     /{(\w+)}/g,
     (_: string, key: string) => String(promptData[key as keyof typeof promptData] ?? "")
   );
+  const userMessage = query
+    ? `[User's original question: "${query}"]\n\n${baseMessage}`
+    : baseMessage;
 
   const completion = await groq.chat.completions.create({
     model: "llama-3.3-70b-versatile",

@@ -36,6 +36,7 @@ type DBNode = {
   notes?: string;
   ancestor_ids: string[];
   depth: number;
+  query: string;
 };
 
 type PreviewState =
@@ -208,6 +209,58 @@ function renderSummaryChunk(chunk: string, index: number) {
   );
 }
 
+type SummaryBlock =
+  | { kind: "paragraph"; text: string }
+  | { kind: "step"; n: number; text: string };
+
+function splitSummaryBlocks(summary: string): SummaryBlock[] {
+  // Push inline numbered items onto their own lines before splitting
+  const normalized = summary.replace(/ (\d+\.) /g, "\n$1 ");
+  const blocks: SummaryBlock[] = [];
+  for (const chunk of normalized.split("\n\n")) {
+    const lines = chunk.split("\n");
+    const hasNumbered = lines.some((l) => /^\d+\.\s/.test(l));
+    if (!hasNumbered) {
+      if (chunk.trim()) blocks.push({ kind: "paragraph", text: chunk });
+      continue;
+    }
+    let proseBuf: string[] = [];
+    for (const line of lines) {
+      const m = line.match(/^(\d+)\.\s+([\s\S]*)/);
+      if (m) {
+        if (proseBuf.length) {
+          blocks.push({ kind: "paragraph", text: proseBuf.join("\n") });
+          proseBuf = [];
+        }
+        blocks.push({ kind: "step", n: parseInt(m[1], 10), text: m[2] });
+      } else {
+        proseBuf.push(line);
+      }
+    }
+    if (proseBuf.length) blocks.push({ kind: "paragraph", text: proseBuf.join("\n") });
+  }
+  return blocks;
+}
+
+function renderSummaryBlock(block: SummaryBlock, index: number) {
+  if (block.kind === "paragraph") return renderSummaryChunk(block.text, index);
+  const segments = parseSummaryChunk(block.text);
+  return (
+    <div key={index} className="flex gap-3 items-baseline">
+      <span className="flex-shrink-0 w-5 text-right text-xs font-bold leading-6 text-violet-500 dark:text-violet-400">
+        {block.n}.
+      </span>
+      <p className="flex-1 text-sm leading-6 text-zinc-800 dark:text-zinc-200">
+        {segments.map((s, i) => {
+          if (s.type === "text") return <span key={i}>{s.content}</span>;
+          if (s.type === "block") return <BlockMath key={i} math={s.math} />;
+          return <InlineMath key={i} math={s.math} />;
+        })}
+      </p>
+    </div>
+  );
+}
+
 function makeGhosts(parentId: string, subtopics: string[], parentDepth: number): { nodes: Node[]; edges: Edge[] } {
   const nodes: Node[] = subtopics.map((sub, i) => ({
     id: `ghost-${parentId}-${i}`,
@@ -252,6 +305,7 @@ function reconstructGraph(dbNodes: DBNode[]): { nodes: Node[]; edges: Edge[] } {
         size,
         isRoot,
         depth: dbNode.depth,
+        query: dbNode.query ?? "",
         nodeData: {
           topic: dbNode.topic,
           summary: dbNode.summary,
@@ -428,7 +482,7 @@ export default function Home() {
       position: { x: 0, y: 0 },
       width: ROOT_SIZE,
       height: ROOT_SIZE,
-      data: { label: nodeData.topic, size: ROOT_SIZE, isRoot: true, depth: 0, nodeData },
+      data: { label: nodeData.topic, size: ROOT_SIZE, isRoot: true, depth: 0, query: originalInput, nodeData },
       style: nodeWrapperStyle(ROOT_SIZE),
     };
 
@@ -459,14 +513,22 @@ export default function Home() {
     setPreviewState({ status: "loading", subtopic, parentId, ghostNodeId: ghostNode?.id ?? null });
 
     try {
-      const briefs = graphNodes
-        .filter((n) => n.type === "circle")
-        .map((n) => (n.data as { nodeData: NodeData }).nodeData.brief);
+      const briefs: string[] = [];
+      let ancestorId: string | null = parentId;
+      while (ancestorId) {
+        const node = graphNodes.find((n) => n.id === ancestorId && n.type === "circle");
+        if (!node) break;
+        briefs.unshift((node.data as { nodeData: NodeData }).nodeData.brief);
+        ancestorId = graphEdges.find((e) => e.target === ancestorId)?.source ?? null;
+      }
+
+      const rootNode = graphNodes.find((n) => !!(n.data as { isRoot?: boolean }).isRoot);
+      const query = (rootNode?.data as { query?: string })?.query ?? "";
 
       const res = await fetch("/api/preview", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topic: subtopic, brief_list: briefs }),
+        body: JSON.stringify({ topic: subtopic, brief_list: briefs, query }),
         signal: controller.signal,
       });
 
@@ -497,11 +559,14 @@ export default function Home() {
     setIsExpanding(true);
     setPreviewState(null);
 
+    const rootNode = graphNodes.find((n) => !!(n.data as { isRoot?: boolean }).isRoot);
+    const query = (rootNode?.data as { query?: string })?.query ?? "";
+
     try {
       const res = await fetch("/api/nodes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topic: subtopic, parent_id: parentId, tree_id: activeTreeId, nodeData }),
+        body: JSON.stringify({ topic: subtopic, parent_id: parentId, tree_id: activeTreeId, nodeData, query }),
       });
 
       if (!res.ok) {
@@ -521,7 +586,7 @@ export default function Home() {
         position: { x: 0, y: 0 },
         width: CIRCLE_SIZE,
         height: CIRCLE_SIZE,
-        data: { label: nodeData.topic, size: CIRCLE_SIZE, depth: newDepth, nodeData },
+        data: { label: nodeData.topic, size: CIRCLE_SIZE, depth: newDepth, query, nodeData },
         style: nodeWrapperStyle(CIRCLE_SIZE),
       };
 
@@ -851,7 +916,7 @@ export default function Home() {
                   {previewState.nodeData.topic}
                 </h1>
                 <div className="text-sm leading-6 text-zinc-800 dark:text-zinc-200 space-y-4">
-                  {previewState.nodeData.summary.split("\n\n").map(renderSummaryChunk)}
+                  {splitSummaryBlocks(previewState.nodeData.summary).map(renderSummaryBlock)}
                 </div>
               </div>
             </div>
@@ -872,7 +937,7 @@ export default function Home() {
                 {activeNodeData.topic}
               </h1>
               <div className="text-sm leading-6 text-zinc-800 dark:text-zinc-200 space-y-4">
-                {activeNodeData.summary.split("\n\n").map(renderSummaryChunk)}
+                {splitSummaryBlocks(activeNodeData.summary).map(renderSummaryBlock)}
               </div>
             </div>
             <div className="flex flex-col gap-2">

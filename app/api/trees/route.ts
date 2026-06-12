@@ -81,6 +81,7 @@ export async function POST(request: NextRequest) {
       subtopics: nodeSubtopics,
       ancestor_ids: [],
       depth: 0,
+      query: originalInput ?? "",
     })
     .select("id")
     .single();
