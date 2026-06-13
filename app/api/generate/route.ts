@@ -1,5 +1,5 @@
 import type { AncestorContext } from '@/types';
-import { createServerClient } from '@/lib/supabase';
+import { createServerClient } from '@/lib/supabase-server';
 import { runPipeline } from '@/lib/pipeline';
 
 interface GenerateBody {
