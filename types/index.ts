@@ -33,6 +33,19 @@ export interface NodeChat {
   created_at: string;
 }
 
+export interface AncestorContext {
+  topic: string;
+  type: NodeType;
+  content: string;
+}
+
+export interface PipelineResult {
+  type: NodeType;
+  content: string;
+  sources: Source[];
+  suggestions: { topic: string; type: NodeType }[];
+}
+
 export interface Annotation {
   id: string;
   node_id: string;
