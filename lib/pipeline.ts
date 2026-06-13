@@ -2,6 +2,12 @@ import type { AncestorContext, NodeType, PipelineResult } from '@/types';
 import { groq, LARGE_MODEL, SMALL_MODEL } from '@/lib/groq';
 import { tavilySearch } from '@/lib/tavily';
 
+function formatSources(sources: { url: string; title: string; content: string }[]): string {
+  return sources
+    .map((s, i) => `[${i + 1}] ${s.title} (${s.url})\nContent: ${s.content}`)
+    .join('\n\n');
+}
+
 export async function runPipeline(
   input: string,
   ancestors: AncestorContext[]
@@ -41,7 +47,7 @@ export async function runPipeline(
     JSON.stringify(ancestors),
     '',
     '## Sources',
-    JSON.stringify(sources),
+    formatSources(sources),
   ].join('\n');
 
   const contentCompletion = await groq.chat.completions.create({
