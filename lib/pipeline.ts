@@ -63,9 +63,14 @@ export async function runPipeline(
     contentCompletion.choices[0].message.content ?? '{}'
   ) as { content: string; suggestions: { topic: string; type: NodeType }[] };
 
+  const content = parsed.content.replace(/\[(\d+)\]/g, (match, n) => {
+    const source = sources[parseInt(n) - 1];
+    return source ? `[[${n}]](${source.url})` : match;
+  });
+
   return {
     type,
-    content: parsed.content,
+    content,
     sources,
     suggestions: parsed.suggestions,
   };
