@@ -46,6 +46,13 @@ export interface PipelineResult {
   suggestions: { topic: string; type: NodeType }[];
 }
 
+export interface Suggestion {
+  id: string;
+  node_id: string;
+  topic: string;
+  type: NodeType;
+}
+
 export interface Annotation {
   id: string;
   node_id: string;
