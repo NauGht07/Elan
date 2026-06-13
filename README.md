@@ -47,7 +47,3 @@ MVP in progress. Core loop working — topic input, recursive tree generation, g
 - Annotations and highlights
 - Community shared trees
 - Mobile responsive
-
-## License
-
-MIT
