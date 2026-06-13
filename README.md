@@ -4,7 +4,7 @@ An AI-powered learning tree. Enter any topic, get an opinionated breakdown, and 
 
 ## What it is
 
-Most learning tools give you information. Elan gives you a path. Enter a topic, get a summary and subtopics to explore. Click into any subtopic and go deeper. The tree remembers your entire journey, so every new node is calibrated to what you've already covered.
+Most learning tools give you information. Elan gives you a path. Enter a topic, get a summary and ranked subtopics to explore. Click into any subtopic and go deeper. The tree remembers your entire journey, so every new node is calibrated to what you've already covered.
 
 ChatGPT can explain things. It can't build a persistent map of your understanding. Elan can.
 
