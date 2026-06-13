@@ -35,3 +35,39 @@ export async function POST(request: Request) {
 
   return Response.json({ tree });
 }
+
+export async function DELETE(request: Request) {
+  let body: { tree_id: string };
+
+  try {
+    body = await request.json();
+  } catch {
+    return Response.json({ error: 'Invalid JSON' }, { status: 400 });
+  }
+
+  const { tree_id } = body;
+
+  if (!tree_id || typeof tree_id !== 'string') {
+    return Response.json({ error: 'Missing required field: tree_id' }, { status: 400 });
+  }
+
+  const supabase = await createServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) {
+    return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const { error } = await supabase
+    .from('trees')
+    .delete()
+    .eq('id', tree_id)
+    .eq('user_id', user.id);
+
+  if (error) {
+    console.error('Tree delete error:', error);
+    return Response.json({ error: 'Failed to delete tree' }, { status: 500 });
+  }
+
+  return new Response(null, { status: 204 });
+}

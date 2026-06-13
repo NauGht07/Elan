@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useStore } from '@/lib/store'
 import { createBrowserClient } from '@/lib/supabase-browser'
 import type { Tree } from '@/types'
@@ -10,10 +11,14 @@ export default function LeftPanel() {
   const setSelectedTreeId = useStore((s) => s.setSelectedTreeId)
   const isCollapsed = useStore((s) => s.isLeftCollapsed)
   const setCollapsed = useStore((s) => s.setLeftCollapsed)
+  const setIsModalOpen = useStore((s) => s.setIsModalOpen)
 
-  const [trees, setTrees] = useState<Tree[]>([])
+  const trees = useStore((s) => s.trees)
+  const setTrees = useStore((s) => s.setTrees)
+  const removeTree = useStore((s) => s.removeTree)
   const [loading, setLoading] = useState(true)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null)
 
   useEffect(() => {
     const supabase = createBrowserClient()
@@ -26,6 +31,28 @@ export default function LeftPanel() {
         setLoading(false)
       })
   }, [])
+
+  useEffect(() => {
+    if (!deleteTarget) return
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setDeleteTarget(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [deleteTarget])
+
+  async function deleteTree(id: string) {
+    try {
+      const res = await fetch('/api/trees', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tree_id: id }),
+      })
+      if (res.ok) removeTree(id)
+    } finally {
+      setDeleteTarget(null)
+    }
+  }
 
   return (
     <aside style={{
@@ -42,7 +69,7 @@ export default function LeftPanel() {
       transition: 'width 400ms cubic-bezier(0,0,0.2,1)',
     }}>
 
-      {/* Top bar — always rendered, contents fade */}
+      {/* Top bar */}
       <div style={{
         height: 60,
         display: 'flex',
@@ -111,20 +138,15 @@ export default function LeftPanel() {
           const isHovered = tree.id === hoveredId
 
           return (
-            <button
+            <div
               key={tree.id}
-              onClick={() => setSelectedTreeId(tree.id)}
               onMouseEnter={() => setHoveredId(tree.id)}
               onMouseLeave={() => setHoveredId(null)}
-              title={tree.title}
               style={{
-                all: 'unset',
-                cursor: 'pointer',
                 position: 'relative',
-                display: 'block',
-                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
                 height: 36,
-                boxSizing: 'border-box',
                 flexShrink: 0,
                 borderLeft: `3px solid ${isSelected && !isCollapsed ? 'var(--node-factual)' : 'transparent'}`,
                 transition: 'border-color 0.2s cubic-bezier(0,0,0.2,1)',
@@ -145,27 +167,62 @@ export default function LeftPanel() {
                 pointerEvents: 'none',
               }} />
 
-              {/* Text — fades out when collapsed */}
-              <span style={{
-                position: 'absolute',
-                top: '50%',
-                left: 21,
-                right: 16,
-                transform: 'translateY(-50%)',
-                fontSize: 13,
-                fontFamily: 'inherit',
-                fontWeight: isSelected ? 500 : 400,
-                color: isSelected ? 'var(--text)' : isHovered ? 'var(--text)' : 'var(--text-muted)',
-                opacity: isCollapsed ? 0 : 1,
-                transition: 'opacity 250ms cubic-bezier(0,0,0.2,1), color 0.15s cubic-bezier(0,0,0.2,1)',
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                pointerEvents: 'none',
-              }}>
-                {tree.title}
-              </span>
-            </button>
+              {/* Selection button — takes all remaining space, contains the label */}
+              <button
+                onClick={() => setSelectedTreeId(tree.id)}
+                title={tree.title}
+                style={{
+                  all: 'unset',
+                  cursor: 'pointer',
+                  flex: 1,
+                  minWidth: 0,
+                  height: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  paddingLeft: 18,
+                }}
+              >
+                <span style={{
+                  fontSize: 13,
+                  fontFamily: 'inherit',
+                  fontWeight: isSelected ? 500 : 400,
+                  color: isSelected ? 'var(--text)' : isHovered ? 'var(--text)' : 'var(--text-muted)',
+                  opacity: isCollapsed ? 0 : 1,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  transition: 'opacity 250ms cubic-bezier(0,0,0.2,1), color 0.15s cubic-bezier(0,0,0.2,1)',
+                }}>
+                  {tree.title}
+                </span>
+              </button>
+
+              {/* Delete button — fades in on hover, hidden when collapsed */}
+              {!isCollapsed && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: tree.id, title: tree.title }) }}
+                  style={{
+                    all: 'unset',
+                    cursor: 'pointer',
+                    flexShrink: 0,
+                    width: 32,
+                    height: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 16,
+                    lineHeight: 1,
+                    color: 'var(--text-muted)',
+                    opacity: isHovered ? 1 : 0,
+                    transition: 'opacity 0.15s cubic-bezier(0,0,0.2,1), color 0.15s cubic-bezier(0,0,0.2,1)',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--node-practical)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
+                >
+                  ×
+                </button>
+              )}
+            </div>
           )
         })}
       </div>
@@ -176,7 +233,7 @@ export default function LeftPanel() {
       {/* New Tree */}
       {isCollapsed ? (
         <button
-          onClick={() => {}}
+          onClick={() => setIsModalOpen(true)}
           title="New Tree"
           style={{
             all: 'unset',
@@ -201,7 +258,7 @@ export default function LeftPanel() {
       ) : (
         <div style={{ padding: '14px 24px 24px', flexShrink: 0 }}>
           <button
-            onClick={() => {}}
+            onClick={() => setIsModalOpen(true)}
             style={{
               all: 'unset',
               cursor: 'pointer',
@@ -221,6 +278,85 @@ export default function LeftPanel() {
             New Tree
           </button>
         </div>
+      )}
+
+      {/* Delete confirmation modal */}
+      {deleteTarget && createPortal(
+        <div
+          onClick={(e) => { if (e.target === e.currentTarget) setDeleteTarget(null) }}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 300,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 24,
+            background: 'rgba(0,0,0,0.55)',
+            backdropFilter: 'blur(4px)',
+            WebkitBackdropFilter: 'blur(4px)',
+          }}
+        >
+          <div
+            className="glass"
+            style={{
+              width: '100%',
+              maxWidth: 360,
+              padding: 32,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 14,
+            }}
+          >
+            <h3 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: 'var(--text)', lineHeight: 1.3 }}>
+              Delete this tree?
+            </h3>
+            <p style={{ margin: 0, fontSize: 14, fontWeight: 500, color: 'var(--text)', lineHeight: 1.4 }}>
+              {deleteTarget.title}
+            </p>
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+              This can't be undone.
+            </p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 4 }}>
+              <button
+                onClick={() => setDeleteTarget(null)}
+                style={{
+                  all: 'unset',
+                  cursor: 'pointer',
+                  padding: '9px 16px',
+                  borderRadius: 8,
+                  border: '1px solid var(--panel-border)',
+                  fontSize: 14,
+                  fontFamily: 'inherit',
+                  color: 'var(--text-muted)',
+                  transition: 'color 0.15s ease-out',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--text)')}
+                onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => deleteTree(deleteTarget.id)}
+                style={{
+                  all: 'unset',
+                  cursor: 'pointer',
+                  padding: '9px 16px',
+                  borderRadius: 8,
+                  background: 'rgba(244,185,122,0.12)',
+                  border: '1px solid rgba(244,185,122,0.3)',
+                  fontSize: 14,
+                  fontFamily: 'inherit',
+                  fontWeight: 600,
+                  color: 'var(--node-practical)',
+                }}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
     </aside>
   )

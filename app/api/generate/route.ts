@@ -1,13 +1,15 @@
-import type { AncestorContext } from '@/types';
+import type { AncestorContext, NodeType } from '@/types';
 import { createServerClient } from '@/lib/supabase-server';
-import { runPipeline } from '@/lib/pipeline';
+import { getInterpretations, runPipeline } from '@/lib/pipeline';
 
 interface GenerateBody {
   input: string;
-  tree_id: string;
+  tree_id?: string;
   parent_id: string | null;
   ancestor_ids: string[];
   ancestors: AncestorContext[];
+  query?: string;
+  type?: NodeType;
 }
 
 export async function POST(request: Request) {
@@ -19,14 +21,9 @@ export async function POST(request: Request) {
     return Response.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const { input, tree_id, parent_id, ancestor_ids, ancestors } = body;
+  const { input, tree_id, parent_id, ancestor_ids, ancestors, query, type } = body;
 
-  if (
-    !input ||
-    !tree_id ||
-    !Array.isArray(ancestor_ids) ||
-    !Array.isArray(ancestors)
-  ) {
+  if (!input || !Array.isArray(ancestor_ids) || !Array.isArray(ancestors)) {
     return Response.json({ error: 'Missing required fields' }, { status: 400 });
   }
 
@@ -37,9 +34,23 @@ export async function POST(request: Request) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  // No tree_id: get interpretations only, no DB writes
+  if (!tree_id) {
+    try {
+      const result = await getInterpretations(input);
+      return Response.json(result);
+    } catch (err) {
+      console.error('Interpretations error:', err);
+      return Response.json({ error: 'Failed to get interpretations' }, { status: 500 });
+    }
+  }
+
+  // With tree_id: full generation + DB write
+  const chosen = query && type ? { query, type } : undefined;
+
   let result;
   try {
-    result = await runPipeline(input, ancestors);
+    result = await runPipeline(input, ancestors, chosen);
   } catch (err) {
     console.error('Pipeline error:', err);
     return Response.json({ error: 'Pipeline failed' }, { status: 500 });
@@ -53,6 +64,7 @@ export async function POST(request: Request) {
       ancestor_ids,
       depth: ancestor_ids.length,
       type: result.type,
+      original_query: input,
       content: result.content,
       sources: result.sources,
     })

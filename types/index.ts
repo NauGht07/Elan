@@ -1,5 +1,13 @@
 export type NodeType = 'factual' | 'practical';
 
+export interface Interpretation {
+  label: string;
+  query: string;
+  type: NodeType;
+}
+
+export type InterpretationResult = { interpretations: Interpretation[] };
+
 export interface Source {
   url: string;
   title: string;
@@ -20,6 +28,7 @@ export interface ElanNode {
   ancestor_ids: string[];
   depth: number;
   type: NodeType;
+  original_query: string;
   content: string;
   sources: Source[];
   created_at: string;

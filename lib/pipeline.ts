@@ -1,4 +1,4 @@
-import type { AncestorContext, NodeType, PipelineResult } from '@/types';
+import type { InterpretationResult, AncestorContext, NodeType, PipelineResult } from '@/types';
 import { groq, LARGE_MODEL, SMALL_MODEL } from '@/lib/groq';
 import { tavilySearch } from '@/lib/tavily';
 
@@ -8,28 +8,55 @@ function formatSources(sources: { url: string; title: string; content: string }[
     .join('\n\n');
 }
 
-export async function runPipeline(
-  input: string,
-  ancestors: AncestorContext[]
-): Promise<PipelineResult> {
-  // Step 1 — small LLM: rewrite query and classify intent
-  const rewriteCompletion = await groq.chat.completions.create({
-    model: SMALL_MODEL,
+export async function getInterpretations(input: string): Promise<InterpretationResult> {
+  const completion = await groq.chat.completions.create({
+    model: LARGE_MODEL,
     messages: [
       {
         role: 'system',
-        content:
-          'Rewrite the user input as a concise search query and classify its intent. ' +
-          'Respond with JSON only: { "query": string, "type": "factual" | "practical" }',
+        content: process.env.AMBIGUITY_CHECK_PROMPT ?? '',
       },
       { role: 'user', content: input },
     ],
     response_format: { type: 'json_object' },
   });
 
-  const { query, type } = JSON.parse(
-    rewriteCompletion.choices[0].message.content ?? '{}'
-  ) as { query: string; type: NodeType };
+  return JSON.parse(
+    completion.choices[0].message.content ?? '{}'
+  ) as InterpretationResult;
+}
+
+export async function runPipeline(
+  input: string,
+  ancestors: AncestorContext[],
+  chosen?: { query: string; type: NodeType }
+): Promise<PipelineResult> {
+  let query: string;
+  let type: NodeType;
+
+  if (chosen) {
+    query = chosen.query;
+    type = chosen.type;
+  } else {
+    // Step 1 — small LLM: rewrite query and classify intent
+    const rewriteCompletion = await groq.chat.completions.create({
+      model: SMALL_MODEL,
+      messages: [
+        {
+          role: 'system',
+          content:
+            'Rewrite the user input as a concise search query and classify its intent. ' +
+            'Respond with JSON only: { "query": string, "type": "factual" | "practical" }',
+        },
+        { role: 'user', content: input },
+      ],
+      response_format: { type: 'json_object' },
+    });
+
+    ({ query, type } = JSON.parse(
+      rewriteCompletion.choices[0].message.content ?? '{}'
+    ) as { query: string; type: NodeType });
+  }
 
   // Step 2 — Tavily: fetch live sources
   const tavilyQuery = type === 'practical' ? `${query} tutorial how to guide` : query;
@@ -42,6 +69,10 @@ export async function runPipeline(
 
   const userMessage = [
     userPrompt,
+    '',
+    '## Query',
+    `Original: ${input}`,
+    `Rewritten: ${query}`,
     '',
     '## Ancestor Chain',
     JSON.stringify(ancestors),

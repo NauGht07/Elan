@@ -2,11 +2,23 @@
 
 import { useStore } from '@/lib/store'
 import LeftPanel from '@/components/LeftPanel'
+import NewTreeModal from '@/components/NewTreeModal'
+import type { Tree, ElanNode } from '@/types'
 
 export default function AppPage() {
   const isDrawerOpen = useStore((s) => s.isDrawerOpen)
   const isDrawerExpanded = useStore((s) => s.isDrawerExpanded)
   const setDrawerExpanded = useStore((s) => s.setDrawerExpanded)
+  const isModalOpen = useStore((s) => s.isModalOpen)
+  const setIsModalOpen = useStore((s) => s.setIsModalOpen)
+  const setSelectedTreeId = useStore((s) => s.setSelectedTreeId)
+  const prependTree = useStore((s) => s.prependTree)
+
+  function handleTreeCreated(tree: Tree, _rootNode: ElanNode) {
+    prependTree(tree)
+    setSelectedTreeId(tree.id)
+    setIsModalOpen(false)
+  }
 
   return (
     <div style={{
@@ -84,6 +96,12 @@ export default function AppPage() {
           </div>
         </aside>
       )}
+
+      <NewTreeModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onComplete={handleTreeCreated}
+      />
     </div>
   )
 }
