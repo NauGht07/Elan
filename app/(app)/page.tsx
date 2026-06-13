@@ -3,12 +3,12 @@
 import { useStore } from '@/lib/store'
 import LeftPanel from '@/components/LeftPanel'
 import NewTreeModal from '@/components/NewTreeModal'
+import Graph from '@/components/Graph'
+import NodeDrawer from '@/components/NodeDrawer'
 import type { Tree, ElanNode } from '@/types'
 
 export default function AppPage() {
-  const isDrawerOpen = useStore((s) => s.isDrawerOpen)
-  const isDrawerExpanded = useStore((s) => s.isDrawerExpanded)
-  const setDrawerExpanded = useStore((s) => s.setDrawerExpanded)
+  const selectedTreeId = useStore((s) => s.selectedTreeId)
   const isModalOpen = useStore((s) => s.isModalOpen)
   const setIsModalOpen = useStore((s) => s.setIsModalOpen)
   const setSelectedTreeId = useStore((s) => s.setSelectedTreeId)
@@ -37,65 +37,23 @@ export default function AppPage() {
         justifyContent: 'center',
         position: 'relative',
       }}>
-        <p style={{
-          margin: 0,
-          fontSize: 14,
-          color: 'var(--text-muted)',
-          letterSpacing: '0.02em',
-          userSelect: 'none',
-          pointerEvents: 'none',
-        }}>
-          Pick a tree to explore
-        </p>
+        {selectedTreeId ? (
+          <Graph />
+        ) : (
+          <p style={{
+            margin: 0,
+            fontSize: 14,
+            color: 'var(--text-muted)',
+            letterSpacing: '0.02em',
+            userSelect: 'none',
+            pointerEvents: 'none',
+          }}>
+            Pick a tree to explore
+          </p>
+        )}
       </main>
 
-      {isDrawerOpen && (
-        <aside
-          className={isDrawerExpanded ? '' : 'glass'}
-          style={isDrawerExpanded
-            ? {
-                position: 'fixed',
-                inset: 0,
-                zIndex: 100,
-                background: 'var(--bg)',
-                backdropFilter: 'blur(24px) saturate(180%)',
-                WebkitBackdropFilter: 'blur(24px) saturate(180%)',
-                display: 'flex',
-                flexDirection: 'column',
-                borderLeft: '1px solid var(--panel-border)',
-                borderRadius: 0,
-              }
-            : {
-                width: 320,
-                flexShrink: 0,
-                display: 'flex',
-                flexDirection: 'column',
-                borderRadius: 0,
-                borderLeft: '1px solid var(--panel-border)',
-              }
-          }
-        >
-          <div style={{
-            padding: '12px 16px',
-            borderBottom: '1px solid var(--panel-border)',
-            display: 'flex',
-            justifyContent: 'flex-end',
-          }}>
-            <button
-              onClick={() => setDrawerExpanded(!isDrawerExpanded)}
-              style={{
-                all: 'unset',
-                cursor: 'pointer',
-                fontSize: 13,
-                color: 'var(--text-muted)',
-                fontFamily: 'inherit',
-              }}
-            >
-              {isDrawerExpanded ? '↙ Collapse' : '↗ Expand'}
-            </button>
-          </div>
-        </aside>
-      )}
+      <NodeDrawer />
 
       <NewTreeModal
         isOpen={isModalOpen}
