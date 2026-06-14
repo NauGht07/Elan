@@ -480,6 +480,7 @@ export default function Graph() {
           d.fx = undefined; d.fy = undefined
         }}
         zoomOnScroll
+        proOptions={{ hideAttribution: true }}
         onInit={(rf) => setViewport(rf.getViewport())}
         onMove={(_, vp) => setViewport(vp)}
         onMoveStart={() => { userOverrideRef.current = true }}
