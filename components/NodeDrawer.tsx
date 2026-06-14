@@ -108,6 +108,12 @@ export default function NodeDrawer() {
 
   async function handleSuggestion(s: Suggestion) {
     if (generatingId || !node || !selectedTreeId) return
+
+    if (s.spawned_node_id) {
+      setActiveNodeId(s.spawned_node_id)
+      return
+    }
+
     setGeneratingId(s.id)
 
     try {
@@ -129,6 +135,17 @@ export default function NodeDrawer() {
 
       if (!res.ok) return
       const { node: newNode } = await res.json()
+
+      const supabase = createBrowserClient()
+      await supabase
+        .from('suggestions')
+        .update({ spawned_node_id: newNode.id })
+        .eq('id', s.id)
+
+      setSuggestions((prev) =>
+        prev.map((sug) => sug.id === s.id ? { ...sug, spawned_node_id: newNode.id } : sug)
+      )
+
       bumpGraphVersion()
       setActiveNodeId(newNode.id)
     } finally {

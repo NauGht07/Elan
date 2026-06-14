@@ -60,6 +60,7 @@ export interface Suggestion {
   node_id: string;
   topic: string;
   type: NodeType;
+  spawned_node_id: string | null;
 }
 
 export interface Annotation {

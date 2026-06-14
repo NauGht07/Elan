@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import ReactFlow, {
   useNodesState,
   useEdgesState,
@@ -10,6 +10,7 @@ import ReactFlow, {
   type Node,
   type Edge,
   type NodeProps,
+  type Viewport,
 } from 'reactflow'
 import 'reactflow/dist/style.css'
 import {
@@ -30,6 +31,7 @@ import type { ElanNode, NodeType } from '@/types'
 const NODE_RADIUS = 28
 const FACTUAL_HEX = '#7B9EFF'
 const PRACTICAL_HEX = '#F4B97A'
+const DRIFT = 0.15
 
 function typeHex(type: NodeType) {
   return type === 'factual' ? FACTUAL_HEX : PRACTICAL_HEX
@@ -98,6 +100,9 @@ export default function Graph() {
 
   const [rfNodes, setNodes, onNodesChange] = useNodesState<OrbData>([])
   const [rfEdges, setEdges, onEdgesChange] = useEdgesState([])
+  const [ringRadii, setRingRadii] = useState<Record<number, number>>({})
+  const [center, setCenter] = useState({ cx: 0, cy: 0 })
+  const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 0, zoom: 1 })
 
   const simRef = useRef<{ stop(): void; alpha(v: number): { restart(): void }; restart(): void } | null>(null)
   const d3NodeMapRef = useRef<Map<string, D3SimNode>>(new Map())
@@ -116,6 +121,7 @@ export default function Graph() {
     if (!selectedTreeId) {
       setNodes([])
       setEdges([])
+      setRingRadii({})
       return
     }
 
@@ -178,6 +184,7 @@ export default function Graph() {
 
         setNodes(initRfNodes)
         setEdges(initRfEdges)
+        setCenter({ cx, cy })
 
         // d3-force simulation
         const simulation = forceSimulation<D3SimNode>(d3Nodes)
@@ -198,12 +205,36 @@ export default function Graph() {
               (d) => d.depth === 0 ? 0 : 250 + (d.depth - 1) * 200,
               cx,
               cy,
-            ).strength((d) => d.depth === 0 ? 0 : 0.4),
+            ).strength((d) => d.depth === 0 ? 0 : 0.9),
           )
+          .force('tangential', () => {
+            for (const d of d3Nodes) {
+              if (d.depth === 0 || d.x == null || d.y == null) continue
+              const dx = d.x - cx
+              const dy = d.y - cy
+              const len = Math.sqrt(dx * dx + dy * dy)
+              if (len < 1) continue
+              d.vx = (d.vx ?? 0) + (-dy / len) * DRIFT
+              d.vy = (d.vy ?? 0) + (dx / len) * DRIFT
+            }
+          })
           .alphaTarget(0.05)
           .alphaDecay(0.02)
 
         simulation.on('tick', () => {
+          // Compute average distance from center per depth for ring circles
+          const acc: Record<number, { sum: number; count: number }> = {}
+          for (const d of d3Nodes) {
+            if (d.depth === 0 || d.x == null || d.y == null) continue
+            const dist = Math.sqrt((d.x - cx) ** 2 + (d.y - cy) ** 2)
+            if (!acc[d.depth]) acc[d.depth] = { sum: 0, count: 0 }
+            acc[d.depth].sum += dist
+            acc[d.depth].count++
+          }
+          const newRadii: Record<number, number> = {}
+          for (const [k, { sum, count }] of Object.entries(acc)) newRadii[+k] = sum / count
+          setRingRadii(newRadii)
+
           setNodes((nds) =>
             nds.map((rfNode) => {
               const d = d3NodeMap.get(rfNode.id)
@@ -231,7 +262,24 @@ export default function Graph() {
   }, [selectedTreeId, graphVersion])
 
   return (
-    <div ref={containerRef} style={{ width: '100%', height: '100%' }}>
+    <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative' }}>
+
+      {Object.keys(ringRadii).length > 0 && (
+        <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 0 }}>
+          <g transform={`translate(${viewport.x},${viewport.y}) scale(${viewport.zoom})`}>
+            {Object.entries(ringRadii).map(([depth, r]) => (
+              <circle
+                key={depth}
+                cx={center.cx}
+                cy={center.cy}
+                r={r}
+                style={{ fill: 'none', stroke: 'var(--panel-border)', strokeWidth: 1, opacity: 1 }}
+              />
+            ))}
+          </g>
+        </svg>
+      )}
+
       <ReactFlow
         nodes={rfNodes}
         edges={rfEdges}
@@ -262,10 +310,12 @@ export default function Graph() {
           if (d) { d.fx = undefined; d.fy = undefined }
         }}
         zoomOnScroll
-        style={{ background: 'transparent' }}
+        onInit={(rf) => setViewport(rf.getViewport())}
+        onMove={(_, vp) => setViewport(vp)}
+        style={{ background: 'transparent', position: 'relative', zIndex: 1 }}
         defaultViewport={{ x: 0, y: 0, zoom: 1 }}
       >
-        <Background color="rgba(255,255,255,0.04)" gap={32} size={1} />
+        <Background color="rgba(172, 172, 172, 0.4)" gap={64} size={2} />
       </ReactFlow>
     </div>
   )
