@@ -217,7 +217,7 @@ export default function NodeDrawer() {
             {expanded ? '↙ Collapse' : '↗ Expand'}
           </button>
           <button
-            onClick={() => setDrawerOpen(false)}
+            onClick={() => { setDrawerOpen(false); setActiveNodeId(null) }}
             style={{
               all: 'unset',
               cursor: 'pointer',
