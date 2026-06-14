@@ -6,7 +6,7 @@ import { useStore } from '@/lib/store'
 import { createBrowserClient } from '@/lib/supabase-browser'
 import { typeHex, typeLabel, TypeBadge, CustomLink } from '@/lib/nodeUtils'
 import ChatPanel from '@/components/ChatPanel'
-import type { ElanNode, Suggestion, NodeType, NodeChat } from '@/types'
+import type { ElanNode, Suggestion, NodeType, NodeChat, Interpretation, AncestorContext } from '@/types'
 
 // ─── NodeDrawer ───────────────────────────────────────────────────────────────
 
@@ -26,6 +26,12 @@ export default function NodeDrawer() {
   const [generatingId, setGeneratingId] = useState<string | null>(null)
   const [isChatOpen, setIsChatOpen] = useState(false)
   const [chatMessages, setChatMessages] = useState<NodeChat[]>([])
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [ancestorChain, setAncestorChain] = useState<AncestorContext[]>([])
+  const [customInput, setCustomInput] = useState('')
+  const [customStatus, setCustomStatus] = useState<'idle' | 'loading' | 'disambiguating' | 'error'>('idle')
+  const [interpretations, setInterpretations] = useState<Interpretation[]>([])
 
   function addChatMessage(msg: Pick<NodeChat, 'role' | 'message'>) {
     setChatMessages((prev) => [...prev, {
@@ -41,6 +47,7 @@ export default function NodeDrawer() {
       setNode(null)
       setSuggestions([])
       setChatMessages([])
+      setAncestorChain([])
       return
     }
 
@@ -53,10 +60,28 @@ export default function NodeDrawer() {
       supabase.from('nodes').select('*').eq('id', activeNodeId).single(),
       supabase.from('suggestions').select('*').eq('node_id', activeNodeId),
       supabase.from('node_chats').select('*').eq('node_id', activeNodeId).order('created_at', { ascending: true }),
-    ]).then(([nodeRes, suggestionsRes, chatRes]) => {
+    ]).then(async ([nodeRes, suggestionsRes, chatRes]) => {
       if (cancelled) return
       if (nodeRes.error || !nodeRes.data) { setFetchStatus('error'); return }
-      setNode(nodeRes.data as ElanNode)
+      const fetchedNode = nodeRes.data as ElanNode
+
+      let chain: AncestorContext[] = []
+      if (fetchedNode.ancestor_ids.length > 0) {
+        const { data: ancestorNodes } = await supabase
+          .from('nodes')
+          .select('original_query, type, content')
+          .in('id', fetchedNode.ancestor_ids)
+          .order('depth', { ascending: true })
+        chain = (ancestorNodes ?? []).map((a) => ({
+          topic: a.original_query as string,
+          type: a.type as NodeType,
+          content: a.content as string,
+        }))
+      }
+
+      if (cancelled) return
+      setNode(fetchedNode)
+      setAncestorChain(chain)
       setSuggestions((suggestionsRes.data ?? []) as Suggestion[])
       setChatMessages((chatRes.data ?? []) as NodeChat[])
       setFetchStatus('idle')
@@ -79,6 +104,10 @@ export default function NodeDrawer() {
 
     try {
       const ancestor_ids = [...node.ancestor_ids, node.id]
+      const ancestors: AncestorContext[] = [
+        ...ancestorChain,
+        { topic: node.original_query, type: node.type, content: node.content },
+      ]
 
       const res = await fetch('/api/generate', {
         method: 'POST',
@@ -88,7 +117,7 @@ export default function NodeDrawer() {
           tree_id: selectedTreeId,
           parent_id: activeNodeId,
           ancestor_ids,
-          ancestors: [],
+          ancestors,
           query: s.topic,
           type: s.type,
         }),
@@ -111,6 +140,91 @@ export default function NodeDrawer() {
       setActiveNodeId(newNode.id)
     } finally {
       setGeneratingId(null)
+    }
+  }
+
+  async function handleCustomSubmit() {
+    const trimmed = customInput.trim()
+    if (!trimmed || !node || customStatus === 'loading') return
+    setCustomStatus('loading')
+    const ancestors: AncestorContext[] = [
+      ...ancestorChain,
+      { topic: node.original_query, type: node.type, content: node.content },
+    ]
+    try {
+      const res = await fetch('/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          input: trimmed,
+          ancestor_ids: [...node.ancestor_ids, node.id],
+          ancestors,
+        }),
+      })
+      if (!res.ok) { setCustomStatus('error'); return }
+      const data = await res.json()
+      const interps: Interpretation[] = data.interpretations ?? []
+      if (interps.length === 0) { setCustomStatus('error'); return }
+      if (interps.length === 1) {
+        await handleCustomPick(interps[0])
+      } else {
+        setInterpretations(interps)
+        setCustomStatus('disambiguating')
+      }
+    } catch {
+      setCustomStatus('error')
+    }
+  }
+
+  async function handleCustomPick(interp: Interpretation) {
+    if (!node || !selectedTreeId) return
+    setCustomStatus('loading')
+    try {
+      const ancestor_ids = [...node.ancestor_ids, node.id]
+      const ancestors: AncestorContext[] = [
+        ...ancestorChain,
+        { topic: node.original_query, type: node.type, content: node.content },
+      ]
+      const res = await fetch('/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          input: customInput.trim(),
+          tree_id: selectedTreeId,
+          parent_id: node.id,
+          ancestor_ids,
+          ancestors,
+          query: interp.query,
+          type: interp.type,
+        }),
+      })
+      if (!res.ok) { setCustomStatus('error'); return }
+      const { node: newNode } = await res.json()
+      bumpGraphVersion()
+      setActiveNodeId(newNode.id)
+      setCustomInput('')
+      setCustomStatus('idle')
+    } catch {
+      setCustomStatus('error')
+    }
+  }
+
+  async function handleDelete() {
+    if (!node || isDeleting) return
+    setIsDeleting(true)
+    try {
+      const res = await fetch('/api/nodes', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ node_id: node.id }),
+      })
+      if (!res.ok) return
+      setDrawerOpen(false)
+      setActiveNodeId(null)
+      bumpGraphVersion()
+    } finally {
+      setIsDeleting(false)
+      setShowDeleteConfirm(false)
     }
   }
 
@@ -149,75 +263,153 @@ export default function NodeDrawer() {
         borderBottom: '1px solid var(--panel-border)',
         gap: 12,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-          {node && <TypeBadge type={node.type} />}
-        </div>
+        {showDeleteConfirm ? (
+          <>
+            <span style={{ fontSize: 14, color: 'var(--text)', fontWeight: 500 }}>
+              Delete this node?
+            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                style={{
+                  all: 'unset',
+                  cursor: 'pointer',
+                  fontSize: 13,
+                  fontFamily: 'inherit',
+                  color: 'var(--text-muted)',
+                  padding: '6px 12px',
+                  borderRadius: 6,
+                  border: '1px solid var(--panel-border)',
+                  transition: 'color 0.15s ease-out',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--text)')}
+                onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={isDeleting}
+                style={{
+                  all: 'unset',
+                  cursor: isDeleting ? 'not-allowed' : 'pointer',
+                  fontSize: 13,
+                  fontFamily: 'inherit',
+                  fontWeight: 600,
+                  color: 'var(--node-practical)',
+                  padding: '6px 12px',
+                  borderRadius: 6,
+                  background: 'rgba(244,185,122,0.12)',
+                  border: '1px solid rgba(244,185,122,0.3)',
+                  opacity: isDeleting ? 0.6 : 1,
+                  transition: 'opacity 0.15s ease-out',
+                }}
+              >
+                {isDeleting ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+              {node && <TypeBadge type={node.type} />}
+            </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-          {/* Chat toggle — hidden in fullscreen */}
-          {!expanded && node && (
-            <button
-              onClick={() => setIsChatOpen((v) => !v)}
-              title="Chat about this node"
-              style={{
-                all: 'unset',
-                cursor: 'pointer',
-                padding: '6px 7px',
-                borderRadius: 6,
-                color: isChatOpen ? typeHex(node.type) : 'var(--text-muted)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                transition: 'color 0.15s ease-out',
-              }}
-              onMouseEnter={(e) => {
-                if (!isChatOpen) e.currentTarget.style.color = 'var(--text)'
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.color = isChatOpen ? typeHex(node.type) : 'var(--text-muted)'
-              }}
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-              </svg>
-            </button>
-          )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+              {/* Chat toggle — hidden in fullscreen */}
+              {!expanded && node && (
+                <button
+                  onClick={() => setIsChatOpen((v) => !v)}
+                  title="Chat about this node"
+                  style={{
+                    all: 'unset',
+                    cursor: 'pointer',
+                    padding: '6px 7px',
+                    borderRadius: 6,
+                    color: isChatOpen ? typeHex(node.type) : 'var(--text-muted)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    transition: 'color 0.15s ease-out',
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isChatOpen) e.currentTarget.style.color = 'var(--text)'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = isChatOpen ? typeHex(node.type) : 'var(--text-muted)'
+                  }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                  </svg>
+                </button>
+              )}
 
-          <button
-            onClick={() => setDrawerExpanded(!expanded)}
-            style={{
-              all: 'unset',
-              cursor: 'pointer',
-              fontSize: 13,
-              color: 'var(--text-muted)',
-              fontFamily: 'inherit',
-              padding: '6px 10px',
-              borderRadius: 6,
-              transition: 'color 0.15s ease-out',
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--text)')}
-            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
-          >
-            {expanded ? '↙ Collapse' : '↗ Expand'}
-          </button>
-          <button
-            onClick={() => { setDrawerOpen(false); setActiveNodeId(null) }}
-            style={{
-              all: 'unset',
-              cursor: 'pointer',
-              fontSize: 20,
-              lineHeight: 1,
-              color: 'var(--text-muted)',
-              padding: '4px 8px',
-              borderRadius: 6,
-              transition: 'color 0.15s ease-out',
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--text)')}
-            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
-          >
-            ×
-          </button>
-        </div>
+              {/* Delete — hidden for root nodes */}
+              {node && node.depth > 0 && (
+                <button
+                  onClick={() => setShowDeleteConfirm(true)}
+                  title="Delete node"
+                  style={{
+                    all: 'unset',
+                    cursor: 'pointer',
+                    padding: '6px 7px',
+                    borderRadius: 6,
+                    color: 'var(--text-muted)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    transition: 'color 0.15s ease-out',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--node-practical)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="3 6 5 6 21 6"/>
+                    <path d="M19 6l-1 14H6L5 6"/>
+                    <path d="M10 11v6M14 11v6"/>
+                    <path d="M9 6V4h6v2"/>
+                  </svg>
+                </button>
+              )}
+
+              <button
+                onClick={() => setDrawerExpanded(!expanded)}
+                style={{
+                  all: 'unset',
+                  cursor: 'pointer',
+                  fontSize: 13,
+                  color: 'var(--text-muted)',
+                  fontFamily: 'inherit',
+                  padding: '6px 10px',
+                  borderRadius: 6,
+                  transition: 'color 0.15s ease-out',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--text)')}
+                onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
+              >
+                {expanded ? '↙ Collapse' : '↗ Expand'}
+              </button>
+              <button
+                onClick={() => { setDrawerOpen(false); setActiveNodeId(null) }}
+                style={{
+                  all: 'unset',
+                  cursor: 'pointer',
+                  fontSize: 20,
+                  lineHeight: 1,
+                  color: 'var(--text-muted)',
+                  padding: '4px 8px',
+                  borderRadius: 6,
+                  transition: 'color 0.15s ease-out',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--text)')}
+                onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
+              >
+                ×
+              </button>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Body — flex row: content + optional chat column */}
@@ -396,6 +588,130 @@ export default function NodeDrawer() {
                   })}
                 </div>
               </div>
+
+              {/* Custom node input */}
+              {customStatus === 'disambiguating' ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                    A few directions — which one?
+                  </p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {interpretations.map((interp, i) => (
+                      <button
+                        key={i}
+                        onClick={() => handleCustomPick(interp)}
+                        style={{
+                          all: 'unset',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: 12,
+                          padding: '13px 16px',
+                          borderRadius: 12,
+                          background: 'var(--panel-bg)',
+                          border: '1px solid var(--panel-border)',
+                          transition: 'border-color 0.15s ease-out, background 0.15s ease-out',
+                          boxSizing: 'border-box',
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.borderColor = 'var(--node-factual)'
+                          e.currentTarget.style.background = 'rgba(123,158,255,0.08)'
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.borderColor = 'var(--panel-border)'
+                          e.currentTarget.style.background = 'var(--panel-bg)'
+                        }}
+                      >
+                        <span style={{ fontSize: 14, color: 'var(--text)', fontFamily: 'inherit', lineHeight: 1.4 }}>
+                          {interp.label}
+                        </span>
+                        <span style={{
+                          fontSize: 11,
+                          fontWeight: 600,
+                          letterSpacing: '0.06em',
+                          textTransform: 'uppercase',
+                          color: interp.type === 'factual' ? 'var(--node-factual)' : 'var(--node-practical)',
+                          flexShrink: 0,
+                        }}>
+                          {interp.type}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => setCustomStatus('idle')}
+                    style={{
+                      all: 'unset',
+                      cursor: 'pointer',
+                      fontSize: 13,
+                      color: 'var(--text-muted)',
+                      fontFamily: 'inherit',
+                      alignSelf: 'flex-start',
+                      transition: 'color 0.15s ease-out',
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--text)')}
+                    onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
+                  >
+                    ← Back
+                  </button>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <input
+                      type="text"
+                      value={customInput}
+                      onChange={(e) => { setCustomInput(e.target.value); if (customStatus === 'error') setCustomStatus('idle') }}
+                      onKeyDown={(e) => e.key === 'Enter' && handleCustomSubmit()}
+                      placeholder="Or ask about..."
+                      disabled={customStatus === 'loading'}
+                      style={{
+                        flex: 1,
+                        minWidth: 0,
+                        background: 'var(--panel-bg)',
+                        border: '1px solid var(--panel-border)',
+                        borderRadius: 10,
+                        color: 'var(--text)',
+                        fontSize: 14,
+                        fontFamily: 'inherit',
+                        padding: '10px 14px',
+                        outline: 'none',
+                        opacity: customStatus === 'loading' ? 0.6 : 1,
+                        transition: 'opacity 0.15s ease-out, border-color 0.15s ease-out',
+                        boxSizing: 'border-box',
+                      }}
+                      onFocus={(e) => (e.currentTarget.style.borderColor = 'var(--node-factual)')}
+                      onBlur={(e) => (e.currentTarget.style.borderColor = 'var(--panel-border)')}
+                    />
+                    <button
+                      onClick={handleCustomSubmit}
+                      disabled={customStatus === 'loading' || !customInput.trim()}
+                      style={{
+                        all: 'unset',
+                        cursor: customStatus === 'loading' || !customInput.trim() ? 'not-allowed' : 'pointer',
+                        flexShrink: 0,
+                        padding: '10px 14px',
+                        borderRadius: 10,
+                        background: 'var(--node-factual)',
+                        color: '#0D0D12',
+                        fontSize: 16,
+                        lineHeight: 1,
+                        fontWeight: 600,
+                        opacity: customStatus === 'loading' || !customInput.trim() ? 0.5 : 1,
+                        transition: 'opacity 0.15s ease-out',
+                      }}
+                    >
+                      →
+                    </button>
+                  </div>
+                  {customStatus === 'error' && (
+                    <p style={{ margin: 0, fontSize: 13, color: 'var(--node-practical)', lineHeight: 1.4 }}>
+                      Something went wrong, try again?
+                    </p>
+                  )}
+                </div>
+              )}
 
               {/* Divider */}
               <div style={{ height: 1, background: 'var(--panel-border)', flexShrink: 0 }} />

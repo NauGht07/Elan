@@ -10,6 +10,7 @@ interface GenerateBody {
   ancestors: AncestorContext[];
   query?: string;
   type?: NodeType;
+  research_mode?: boolean;
 }
 
 export async function POST(request: Request) {
@@ -21,7 +22,7 @@ export async function POST(request: Request) {
     return Response.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const { input, tree_id, parent_id, ancestor_ids, ancestors, query, type } = body;
+  const { input, tree_id, parent_id, ancestor_ids, ancestors, query, type, research_mode = true } = body;
 
   if (!input || !Array.isArray(ancestor_ids) || !Array.isArray(ancestors)) {
     return Response.json({ error: 'Missing required fields' }, { status: 400 });
@@ -37,7 +38,7 @@ export async function POST(request: Request) {
   // No tree_id: get interpretations only, no DB writes
   if (!tree_id) {
     try {
-      const result = await getInterpretations(input);
+      const result = await getInterpretations(input, ancestors);
       return Response.json(result);
     } catch (err) {
       console.error('Interpretations error:', err);
@@ -50,7 +51,7 @@ export async function POST(request: Request) {
 
   let result;
   try {
-    result = await runPipeline(input, ancestors, chosen);
+    result = await runPipeline(input, ancestors, chosen, research_mode);
   } catch (err) {
     console.error('Pipeline error:', err);
     return Response.json({ error: 'Pipeline failed' }, { status: 500 });

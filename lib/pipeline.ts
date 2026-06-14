@@ -8,7 +8,17 @@ function formatSources(sources: { url: string; title: string; content: string }[
     .join('\n\n');
 }
 
-export async function getInterpretations(input: string): Promise<InterpretationResult> {
+export async function getInterpretations(input: string, ancestors: AncestorContext[]): Promise<InterpretationResult> {
+  const userMessage = ancestors.length > 0
+    ? [
+        '## Ancestor Chain',
+        JSON.stringify(ancestors),
+        '',
+        '## Query',
+        input,
+      ].join('\n')
+    : input;
+
   const completion = await groq.chat.completions.create({
     model: LARGE_MODEL,
     messages: [
@@ -16,7 +26,7 @@ export async function getInterpretations(input: string): Promise<InterpretationR
         role: 'system',
         content: process.env.AMBIGUITY_CHECK_PROMPT ?? '',
       },
-      { role: 'user', content: input },
+      { role: 'user', content: userMessage },
     ],
     response_format: { type: 'json_object' },
   });
@@ -29,7 +39,8 @@ export async function getInterpretations(input: string): Promise<InterpretationR
 export async function runPipeline(
   input: string,
   ancestors: AncestorContext[],
-  chosen?: { query: string; type: NodeType }
+  chosen?: { query: string; type: NodeType },
+  researchMode?: boolean
 ): Promise<PipelineResult> {
   let query: string;
   let type: NodeType;
@@ -60,7 +71,45 @@ export async function runPipeline(
 
   // Step 2 — Tavily: fetch live sources
   const tavilyQuery = type === 'practical' ? `${query} tutorial how to guide` : query;
-  const sources = await tavilySearch(tavilyQuery);
+  const sources_v1 = await tavilySearch(tavilyQuery);
+
+  // Research mode — structure pass + follow-up searches
+  let sources_v2: Source[] = [];
+  if (researchMode) {
+    const structureMessage = [
+      `## Topic`,
+      query,
+      '',
+      `## Type`,
+      type,
+      '',
+      '## Ancestor Chain',
+      JSON.stringify(ancestors),
+      '',
+      '## Initial Sources',
+      formatSources(sources_v1),
+    ].join('\n');
+
+    const structureCompletion = await groq.chat.completions.create({
+      model: LARGE_MODEL,
+      messages: [
+        { role: 'system', content: process.env.RESEARCH_STRUCTURE_PROMPT ?? '' },
+        { role: 'user', content: structureMessage },
+      ],
+      response_format: { type: 'json_object' },
+    });
+
+    const { queries = [] } = JSON.parse(
+      structureCompletion.choices[0].message.content ?? '{}'
+    ) as { queries: string[] };
+
+    if (queries.length > 0) {
+      const results = await Promise.all(queries.map((q) => tavilySearch(q)));
+      sources_v2 = results.flat();
+    }
+  }
+
+  const finalSources = researchMode ? [...sources_v1, ...sources_v2] : sources_v1;
 
   // Step 3 — large LLM: generate node content
   const userPrompt = type === 'factual'
@@ -78,7 +127,7 @@ export async function runPipeline(
     JSON.stringify(ancestors),
     '',
     '## Sources',
-    formatSources(sources),
+    formatSources(finalSources),
   ].join('\n');
 
   const contentCompletion = await groq.chat.completions.create({
@@ -95,14 +144,14 @@ export async function runPipeline(
   ) as { content: string; suggestions: { topic: string; type: NodeType }[] };
 
   const content = parsed.content.replace(/\[(\d+)\]/g, (match, n) => {
-    const source = sources[parseInt(n) - 1];
+    const source = finalSources[parseInt(n) - 1];
     return source ? `[[${n}]](${source.url})` : match;
   });
 
   return {
     type,
     content,
-    sources,
+    sources: finalSources,
     suggestions: parsed.suggestions,
   };
 }

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
+import Link from 'next/link'
 import { useStore } from '@/lib/store'
 import { createBrowserClient } from '@/lib/supabase-browser'
 import type { Tree } from '@/types'
@@ -293,6 +294,68 @@ export default function LeftPanel() {
             <span style={{ fontSize: 16, fontWeight: 300, lineHeight: 1 }}>+</span>
             New Tree
           </button>
+        </div>
+      )}
+
+      {/* Separator */}
+      <div style={{ height: 1, flexShrink: 0, background: 'var(--panel-border)' }} />
+
+      {/* Account */}
+      {isCollapsed ? (
+        <Link
+          href="/account"
+          title="Account"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: '100%',
+            height: 48,
+            flexShrink: 0,
+            color: 'var(--text-muted)',
+            textDecoration: 'none',
+            transition: 'color 0.15s cubic-bezier(0,0,0.2,1)',
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--node-factual)')}
+          onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
+        >
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="7.5" cy="5" r="2.5" stroke="currentColor" strokeWidth="1.2" />
+            <path d="M2 13c0-3 2.5-4.5 5.5-4.5S13 10 13 13" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+          </svg>
+        </Link>
+      ) : (
+        <div style={{ padding: '10px 16px 14px', flexShrink: 0 }}>
+          <Link
+            href="/account"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              padding: '8px 10px',
+              borderRadius: 8,
+              textDecoration: 'none',
+              color: 'var(--text-muted)',
+              fontSize: 13,
+              fontFamily: 'inherit',
+              fontWeight: 400,
+              transition: 'color 0.15s cubic-bezier(0,0,0.2,1), background 0.15s cubic-bezier(0,0,0.2,1)',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = 'var(--text)'
+              e.currentTarget.style.background = 'rgba(255,255,255,0.04)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = 'var(--text-muted)'
+              e.currentTarget.style.background = 'transparent'
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+              <circle cx="7.5" cy="5" r="2.5" stroke="currentColor" strokeWidth="1.2" />
+              <path d="M2 13c0-3 2.5-4.5 5.5-4.5S13 10 13 13" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+            </svg>
+            Account
+          </Link>
         </div>
       )}
 
