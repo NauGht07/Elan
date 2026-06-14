@@ -38,3 +38,8 @@ body {
   border-radius: 20px;
 }
 
+@keyframes elan-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+

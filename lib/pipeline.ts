@@ -1,4 +1,4 @@
-import type { InterpretationResult, AncestorContext, NodeType, PipelineResult } from '@/types';
+import type { InterpretationResult, AncestorContext, NodeType, PipelineResult, ElanNode, NodeChat, ChatPipelineResult, Source } from '@/types';
 import { groq, LARGE_MODEL, SMALL_MODEL } from '@/lib/groq';
 import { tavilySearch } from '@/lib/tavily';
 
@@ -105,4 +105,101 @@ export async function runPipeline(
     sources,
     suggestions: parsed.suggestions,
   };
+}
+
+function formatSourcesIndexed(sources: Source[], startIndex: number): string {
+  return sources
+    .map((s, i) => `[${startIndex + i}] ${s.title} (${s.url})\nContent: ${s.content}`)
+    .join('\n\n');
+}
+
+export async function runChatPipeline(
+  message: string,
+  node: ElanNode,
+  ancestors: AncestorContext[],
+  chatHistory: NodeChat[],
+): Promise<ChatPipelineResult> {
+  // Step 1 — large model: decide whether a new search is needed
+  const existingSourcesSummary = node.sources
+    .map((s, i) => `[${i + 1}] ${s.title} (${s.url})`)
+    .join('\n');
+
+  const needsSearchCompletion = await groq.chat.completions.create({
+    model: LARGE_MODEL,
+    messages: [
+      { role: 'system', content: process.env.CHAT_NEEDS_SEARCH_PROMPT ?? '' },
+      {
+        role: 'user',
+        content: [
+          '## Node Content',
+          node.content,
+          '',
+          '## Existing Sources',
+          existingSourcesSummary || '(none)',
+          '',
+          '## User Question',
+          message,
+        ].join('\n'),
+      },
+    ],
+    response_format: { type: 'json_object' },
+  });
+
+  const { needs_search, query } = JSON.parse(
+    needsSearchCompletion.choices[0].message.content ?? '{}'
+  ) as { needs_search: boolean; query?: string };
+
+  // Step 2 — conditional Tavily fetch
+  const newSources: Source[] = needs_search && query
+    ? await tavilySearch(query)
+    : [];
+
+  // Step 3 — large model: generate chat response
+  const existingSourcesBlock = node.sources.length > 0
+    ? formatSourcesIndexed(node.sources, 1)
+    : '(none)';
+
+  const newSourcesBlock = newSources.length > 0
+    ? formatSourcesIndexed(newSources, node.sources.length + 1)
+    : '';
+
+  const userMessage = [
+    `## Node: ${node.original_query}`,
+    node.content,
+    '',
+    '## Ancestor Chain',
+    JSON.stringify(ancestors),
+    '',
+    '## Sources',
+    existingSourcesBlock,
+    ...(newSourcesBlock ? [newSourcesBlock] : []),
+    '',
+    '## New Message',
+    message,
+  ].join('\n');
+
+  const chatMessages = [
+    { role: 'system' as const, content: process.env.CHAT_SYSTEM_PROMPT ?? '' },
+    ...chatHistory.map((msg) => ({
+      role: msg.role as 'user' | 'assistant',
+      content: msg.message,
+    })),
+    { role: 'user' as const, content: userMessage },
+  ];
+
+  const responseCompletion = await groq.chat.completions.create({
+    model: LARGE_MODEL,
+    messages: chatMessages,
+  });
+
+  const rawResponse = responseCompletion.choices[0].message.content ?? '';
+
+  // Step 4 — post-process [n] -> [[n]](url) over combined source list
+  const combinedSources = [...node.sources, ...newSources];
+  const response = rawResponse.replace(/\[(\d+)\]/g, (match, n) => {
+    const source = combinedSources[parseInt(n) - 1];
+    return source ? `[[${n}]](${source.url})` : match;
+  });
+
+  return { response, sources: newSources };
 }

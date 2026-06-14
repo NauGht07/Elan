@@ -72,3 +72,8 @@ export interface Annotation {
   anchor_end: number | null;
   created_at: string;
 }
+
+export interface ChatPipelineResult {
+  response: string;
+  sources: Source[]; // new sources only; existing node sources are already known to the frontend
+}
