@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import ReactFlow, {
   useNodesState,
   useEdgesState,
+  useReactFlow,
   Handle,
   Position,
   Background,
@@ -26,6 +27,22 @@ import { useStore } from '@/lib/store'
 import { createBrowserClient } from '@/lib/supabase-browser'
 import type { ElanNode, NodeType } from '@/types'
 
+// ─── Bloom keyframe ──────────────────────────────────────────────────────────
+
+if (typeof document !== 'undefined') {
+  const id = 'elan-orb-bloom'
+  if (!document.getElementById(id)) {
+    const el = document.createElement('style')
+    el.id = id
+    el.textContent = `@keyframes orb-bloom {
+      0%   { transform: scale(0); opacity: 0; }
+      65%  { transform: scale(1.12); opacity: 1; }
+      100% { transform: scale(1); opacity: 1; }
+    }`
+    document.head.appendChild(el)
+  }
+}
+
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const NODE_RADIUS = 28
@@ -35,6 +52,18 @@ const DRIFT = 0.15
 
 function typeHex(type: NodeType) {
   return type === 'factual' ? FACTUAL_HEX : PRACTICAL_HEX
+}
+
+function spawnPosition(
+  depth: number,
+  parentSnap: { x: number; y: number } | undefined,
+  cx: number,
+  cy: number,
+): { x: number; y: number } {
+  if (!parentSnap) return { x: cx, y: cy }
+  const radius = 250 + (depth - 1) * 200
+  const angle = Math.atan2(parentSnap.y - cy, parentSnap.x - cx) + (Math.random() - 0.5) * 0.6
+  return { x: cx + radius * Math.cos(angle), y: cy + radius * Math.sin(angle) }
 }
 
 // ─── D3 types ────────────────────────────────────────────────────────────────
@@ -49,7 +78,9 @@ interface D3SimNode extends SimulationNodeDatum {
 
 interface OrbData {
   nodeType: NodeType
+  depth: number
   isActive: boolean
+  isNew: boolean
 }
 
 const handleStyle: React.CSSProperties = {
@@ -62,9 +93,35 @@ const handleStyle: React.CSSProperties = {
 }
 
 function OrbNode({ data }: NodeProps<OrbData>) {
+  const [blooming, setBlooming] = useState(false)
+
+  useEffect(() => {
+    if (!data.isNew) return
+    setBlooming(true)
+    const t = setTimeout(() => setBlooming(false), 450)
+    return () => clearTimeout(t)
+  }, [data.isNew])
+
   const hex = typeHex(data.nodeType)
+
+  let boxShadow: string
+  if (blooming) {
+    boxShadow = `0 0 0 2px ${hex}, 0 0 40px ${hex}cc, 0 0 80px ${hex}60, inset 0 1px 1px rgba(255,255,255,0.2)`
+  } else if (data.isActive) {
+    boxShadow = `0 0 0 2px ${hex}, 0 0 32px ${hex}80, inset 0 1px 1px rgba(255,255,255,0.2)`
+  } else {
+    boxShadow = 'inset 0 1px 1px rgba(255,255,255,0.12)'
+  }
+
   return (
-    <div style={{ width: NODE_RADIUS * 2, height: NODE_RADIUS * 2, position: 'relative' }}>
+    <div
+      style={{
+        width: NODE_RADIUS * 2,
+        height: NODE_RADIUS * 2,
+        position: 'relative',
+        animation: data.isNew ? 'orb-bloom 500ms cubic-bezier(0,0,0.2,1) forwards' : undefined,
+      }}
+    >
       <Handle type="target" position={Position.Left} style={handleStyle} />
       <div
         style={{
@@ -75,16 +132,78 @@ function OrbNode({ data }: NodeProps<OrbData>) {
           backdropFilter: 'blur(12px) saturate(180%)',
           WebkitBackdropFilter: 'blur(12px) saturate(180%)',
           border: `1.5px solid ${hex}66`,
-          boxShadow: data.isActive
-            ? `0 0 0 2px ${hex}, 0 0 32px ${hex}80, inset 0 1px 1px rgba(255,255,255,0.2)`
-            : 'inset 0 1px 1px rgba(255,255,255,0.12)',
-          transition: 'box-shadow 300ms cubic-bezier(0,0,0.2,1)',
+          boxShadow,
+          transition: 'box-shadow 400ms cubic-bezier(0,0,0.2,1)',
           cursor: 'pointer',
         }}
       />
       <Handle type="source" position={Position.Right} style={handleStyle} />
     </div>
   )
+}
+
+// ─── Camera controller ───────────────────────────────────────────────────────
+
+const FOLLOW_ZOOM = 1.5
+
+interface CameraControllerProps {
+  activeNodeId: string | null
+  fitViewTrigger: number
+  rfNodes: Node<OrbData>[]
+  cx: number
+  cy: number
+  selectedTreeId: string | null
+  nodesTreeId: string | null
+  userOverrideRef: React.MutableRefObject<boolean>
+}
+
+function CameraController({ activeNodeId, fitViewTrigger, rfNodes, cx, cy, selectedTreeId, nodesTreeId, userOverrideRef }: CameraControllerProps) {
+  const { fitView, setViewport } = useReactFlow()
+  const nullFiredForRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (fitViewTrigger === 0) return
+    fitView({ padding: 0.3, duration: 600 })
+  }, [fitViewTrigger])
+
+  useEffect(() => {
+    if (activeNodeId !== null) {
+      nullFiredForRef.current = null
+      return
+    }
+    if (nodesTreeId !== selectedTreeId) return
+    if (rfNodes.length === 0) return
+    if (nullFiredForRef.current === selectedTreeId) return
+    nullFiredForRef.current = selectedTreeId
+
+    const maxDepth = rfNodes.reduce((max, n) => Math.max(max, n.data.depth), 0)
+    let zoom: number
+    if (maxDepth === 0) {
+      zoom = 1
+    } else {
+      const maxRadius = 250 + (maxDepth - 1) * 200
+      zoom = Math.min(1, Math.max(0.25, (cx * 2 * 0.3) / maxRadius))
+    }
+    setViewport(
+      { x: cx * (1 - zoom), y: cy * (1 - zoom), zoom },
+      { duration: 600 },
+    )
+  }, [activeNodeId, rfNodes, nodesTreeId])
+
+  useEffect(() => {
+    if (!activeNodeId) return
+    if (userOverrideRef.current) return
+    const node = rfNodes.find((n) => n.id === activeNodeId)
+    if (!node) return
+    const targetX = node.position.x + NODE_RADIUS
+    const targetY = node.position.y + NODE_RADIUS
+    setViewport(
+      { x: cx - targetX * FOLLOW_ZOOM, y: cy - targetY * FOLLOW_ZOOM, zoom: FOLLOW_ZOOM },
+      { duration: 150 },
+    )
+  }, [activeNodeId, rfNodes])
+
+  return null
 }
 
 const nodeTypes = { orb: OrbNode }
@@ -103,18 +222,35 @@ export default function Graph() {
   const [ringRadii, setRingRadii] = useState<Record<number, number>>({})
   const [center, setCenter] = useState({ cx: 0, cy: 0 })
   const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 0, zoom: 1 })
+  const [nodesTreeId, setNodesTreeId] = useState<string | null>(null)
+
+  const [fitViewTrigger, setFitViewTrigger] = useState(0)
 
   const simRef = useRef<{ stop(): void; alpha(v: number): { restart(): void }; restart(): void } | null>(null)
   const d3NodeMapRef = useRef<Map<string, D3SimNode>>(new Map())
   const activeNodeIdRef = useRef<string | null>(activeNodeId)
   const containerRef = useRef<HTMLDivElement>(null)
+  const posSnapshotRef = useRef<Map<string, { x: number; y: number }>>(new Map())
+  const prevTreeIdRef = useRef<string | null>(null)
+  const userOverrideRef = useRef(false)
 
   // Keep ref current so the d3 tick closure always reads the latest value
   useEffect(() => {
     activeNodeIdRef.current = activeNodeId
   }, [activeNodeId])
 
+  // Reset override whenever activeNodeId becomes non-null (covers suggestion-spawned nodes)
   useEffect(() => {
+    if (activeNodeId !== null) userOverrideRef.current = false
+  }, [activeNodeId])
+
+  useEffect(() => {
+    const snapshot = new Map<string, { x: number; y: number }>()
+    for (const [id, d] of d3NodeMapRef.current) {
+      if (d.x != null && d.y != null) snapshot.set(id, { x: d.x, y: d.y })
+    }
+    posSnapshotRef.current = snapshot
+
     simRef.current?.stop()
     simRef.current = null
 
@@ -140,16 +276,21 @@ export default function Graph() {
         const cx = (containerRef.current?.offsetWidth ?? 800) / 2
         const cy = (containerRef.current?.offsetHeight ?? 600) / 2
 
-        // Build d3 nodes — root pinned at canvas center
-        const d3Nodes: D3SimNode[] = elanNodes.map((n) => ({
-          id: n.id,
-          x: cx + (Math.random() - 0.5) * 200,
-          y: cy + (Math.random() - 0.5) * 200,
-          nodeType: n.type,
-          depth: n.depth,
-          fx: n.depth === 0 ? cx : undefined,
-          fy: n.depth === 0 ? cy : undefined,
-        }))
+        // Build d3 nodes — existing nodes resume from last position, new node spawns on its ring
+        const d3Nodes: D3SimNode[] = elanNodes.map((n) => {
+          const snap = posSnapshotRef.current.get(n.id)
+          const parentSnap = n.parent_id ? posSnapshotRef.current.get(n.parent_id) : undefined
+          const pos = snap ?? spawnPosition(n.depth, parentSnap, cx, cy)
+          return {
+            id: n.id,
+            x: pos.x,
+            y: pos.y,
+            nodeType: n.type,
+            depth: n.depth,
+            fx: n.depth === 0 ? cx : undefined,
+            fy: n.depth === 0 ? cy : undefined,
+          }
+        })
 
         const d3NodeMap = new Map(d3Nodes.map((n) => [n.id, n]))
         d3NodeMapRef.current = d3NodeMap
@@ -159,13 +300,24 @@ export default function Graph() {
           .filter((n) => n.parent_id !== null)
           .map((n) => ({ source: n.parent_id as string, target: n.id }))
 
-        // Initial React Flow nodes (positions don't matter — first tick overwrites them)
-        const initRfNodes: Node<OrbData>[] = elanNodes.map((n) => ({
-          id: n.id,
-          type: 'orb',
-          position: { x: cx - NODE_RADIUS, y: cy - NODE_RADIUS },
-          data: { nodeType: n.type, isActive: false },
-        }))
+        const newNodeIds = new Set(
+          elanNodes.filter((n) => !posSnapshotRef.current.has(n.id)).map((n) => n.id)
+        )
+
+        // Initial RF nodes — existing at last position, new on its ring near parent angle
+        const initRfNodes: Node<OrbData>[] = elanNodes.map((n) => {
+          const snap = posSnapshotRef.current.get(n.id)
+          const parentSnap = n.parent_id ? posSnapshotRef.current.get(n.parent_id) : undefined
+          const pos = snap ?? spawnPosition(n.depth, parentSnap, cx, cy)
+          const x = pos.x - NODE_RADIUS
+          const y = pos.y - NODE_RADIUS
+          return {
+            id: n.id,
+            type: 'orb',
+            position: { x, y },
+            data: { nodeType: n.type, depth: n.depth, isActive: false, isNew: newNodeIds.has(n.id) },
+          }
+        })
 
         // React Flow edges — colored to match source node type
         const initRfEdges: Edge[] = elanNodes
@@ -185,6 +337,20 @@ export default function Graph() {
         setNodes(initRfNodes)
         setEdges(initRfEdges)
         setCenter({ cx, cy })
+        setNodesTreeId(selectedTreeId)
+
+        if (prevTreeIdRef.current !== selectedTreeId) {
+          prevTreeIdRef.current = selectedTreeId
+          setFitViewTrigger((v) => v + 1)
+        }
+
+        if (newNodeIds.size > 0) {
+          setTimeout(() => {
+            setNodes((nds) =>
+              nds.map((n) => newNodeIds.has(n.id) ? { ...n, data: { ...n.data, isNew: false } } : n)
+            )
+          }, 600)
+        }
 
         // d3-force simulation
         const simulation = forceSimulation<D3SimNode>(d3Nodes)
@@ -249,6 +415,7 @@ export default function Graph() {
               }
             }),
           )
+
         })
 
         simRef.current = simulation
@@ -286,6 +453,7 @@ export default function Graph() {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onNodeClick={(_, node) => {
+          userOverrideRef.current = false
           setActiveNodeId(node.id)
           setDrawerOpen(true)
         }}
@@ -296,26 +464,39 @@ export default function Graph() {
         panOnDrag
         onNodeDragStart={(_, node) => {
           const d = d3NodeMapRef.current.get(node.id)
-          if (d) { d.fx = d.x; d.fy = d.y }
+          if (!d || d.depth === 0) return
+          d.fx = d.x; d.fy = d.y
         }}
         onNodeDrag={(_, node) => {
           const d = d3NodeMapRef.current.get(node.id)
-          if (!d || !simRef.current) return
+          if (!d || d.depth === 0 || !simRef.current) return
           d.fx = node.position.x + NODE_RADIUS
           d.fy = node.position.y + NODE_RADIUS
           simRef.current.alpha(0.3).restart()
         }}
         onNodeDragStop={(_, node) => {
           const d = d3NodeMapRef.current.get(node.id)
-          if (d) { d.fx = undefined; d.fy = undefined }
+          if (!d || d.depth === 0) return
+          d.fx = undefined; d.fy = undefined
         }}
         zoomOnScroll
         onInit={(rf) => setViewport(rf.getViewport())}
         onMove={(_, vp) => setViewport(vp)}
+        onMoveStart={() => { userOverrideRef.current = true }}
         style={{ background: 'transparent', position: 'relative', zIndex: 1 }}
         defaultViewport={{ x: 0, y: 0, zoom: 1 }}
       >
         <Background color="rgba(172, 172, 172, 0.4)" gap={64} size={2} />
+        <CameraController
+          activeNodeId={activeNodeId}
+          fitViewTrigger={fitViewTrigger}
+          rfNodes={rfNodes}
+          cx={center.cx}
+          cy={center.cy}
+          selectedTreeId={selectedTreeId}
+          nodesTreeId={nodesTreeId}
+          userOverrideRef={userOverrideRef}
+        />
       </ReactFlow>
     </div>
   )

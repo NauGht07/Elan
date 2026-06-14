@@ -9,6 +9,7 @@ import type { Tree } from '@/types'
 export default function LeftPanel() {
   const selectedTreeId = useStore((s) => s.selectedTreeId)
   const setSelectedTreeId = useStore((s) => s.setSelectedTreeId)
+  const setActiveNodeId = useStore((s) => s.setActiveNodeId)
   const isCollapsed = useStore((s) => s.isLeftCollapsed)
   const setCollapsed = useStore((s) => s.setLeftCollapsed)
   const setIsModalOpen = useStore((s) => s.setIsModalOpen)
@@ -169,7 +170,7 @@ export default function LeftPanel() {
 
               {/* Selection button — takes all remaining space, contains the label */}
               <button
-                onClick={() => setSelectedTreeId(tree.id)}
+                onClick={() => { setSelectedTreeId(tree.id); setActiveNodeId(null) }}
                 title={tree.title}
                 style={{
                   all: 'unset',
