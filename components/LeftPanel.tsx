@@ -206,12 +206,12 @@ export default function LeftPanel() {
                     all: 'unset',
                     cursor: 'pointer',
                     flexShrink: 0,
-                    width: 32,
+                    width: 36,
                     height: '100%',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    fontSize: 16,
+                    fontSize: 20,
                     lineHeight: 1,
                     color: 'var(--text-muted)',
                     opacity: isHovered ? 1 : 0,
@@ -257,7 +257,7 @@ export default function LeftPanel() {
           +
         </button>
       ) : (
-        <div style={{ padding: '14px 24px 24px', flexShrink: 0 }}>
+        <div style={{ padding: '12px 16px 16px', flexShrink: 0 }}>
           <button
             onClick={() => setIsModalOpen(true)}
             style={{
@@ -265,17 +265,32 @@ export default function LeftPanel() {
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
+              justifyContent: 'center',
               gap: 8,
+              width: '100%',
+              padding: '10px 0',
+              borderRadius: 10,
+              border: '1px solid var(--panel-border)',
               fontSize: 13,
               fontFamily: 'inherit',
+              fontWeight: 500,
               color: 'var(--text-muted)',
-              transition: 'color 0.15s cubic-bezier(0,0,0.2,1)',
-              lineHeight: 1,
+              background: 'transparent',
+              transition: 'color 0.15s cubic-bezier(0,0,0.2,1), border-color 0.15s cubic-bezier(0,0,0.2,1), background 0.15s cubic-bezier(0,0,0.2,1)',
+              boxSizing: 'border-box',
             }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--node-factual)')}
-            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = 'var(--node-factual)'
+              e.currentTarget.style.borderColor = 'var(--node-factual)'
+              e.currentTarget.style.background = 'rgba(123,158,255,0.06)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = 'var(--text-muted)'
+              e.currentTarget.style.borderColor = 'var(--panel-border)'
+              e.currentTarget.style.background = 'transparent'
+            }}
           >
-            <span style={{ fontSize: 18, fontWeight: 300 }}>+</span>
+            <span style={{ fontSize: 16, fontWeight: 300, lineHeight: 1 }}>+</span>
             New Tree
           </button>
         </div>

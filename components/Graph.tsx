@@ -323,8 +323,8 @@ export default function Graph() {
         const initRfEdges: Edge[] = elanNodes
           .filter((n) => n.parent_id !== null)
           .map((n) => {
-            const parentD3 = d3NodeMap.get(n.parent_id as string)
-            const hex = parentD3 ? typeHex(parentD3.nodeType) : FACTUAL_HEX
+            const childD3 = d3NodeMap.get(n.id)
+            const hex = childD3 ? typeHex(childD3.nodeType) : FACTUAL_HEX
             return {
               id: `${n.parent_id}-${n.id}`,
               source: n.parent_id as string,
