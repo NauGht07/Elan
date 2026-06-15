@@ -235,9 +235,9 @@ export default function NodeDrawer() {
 
   const panelStyle: React.CSSProperties = {
     position: 'fixed',
-    top: 0,
-    right: 0,
-    bottom: 0,
+    top: expanded ? 0 : 14,
+    right: expanded ? 0 : 14,
+    bottom: expanded ? 0 : 14,
     zIndex: 100,
     width: expanded ? '100vw' : (isChatOpen ? 720 : 360),
     transition: 'width 400ms cubic-bezier(0,0,0.2,1)',
@@ -246,7 +246,10 @@ export default function NodeDrawer() {
     background: 'var(--panel-bg)',
     backdropFilter: 'blur(24px) saturate(180%)',
     WebkitBackdropFilter: 'blur(24px) saturate(180%)',
-    borderLeft: expanded ? 'none' : '1px solid var(--panel-border)',
+    border: expanded ? 'none' : '1px solid var(--panel-border)',
+    borderRadius: expanded ? 0 : 20,
+    boxShadow: expanded ? 'none' : 'var(--slab-shadow), inset 0 1px 0 var(--edge-sheen)',
+    overflow: 'hidden',
   }
 
   return (
@@ -487,8 +490,8 @@ export default function NodeDrawer() {
                       return isBlock ? (
                         <code style={{
                           display: 'block',
-                          background: 'rgba(255,255,255,0.06)',
-                          border: '1px solid var(--panel-border)',
+                          background: 'var(--surface)',
+                          border: '1px solid var(--surface-border)',
                           borderRadius: 8,
                           padding: '12px 16px',
                           fontSize: 13,
@@ -498,7 +501,7 @@ export default function NodeDrawer() {
                         }}>{children}</code>
                       ) : (
                         <code style={{
-                          background: 'rgba(255,255,255,0.08)',
+                          background: 'var(--surface)',
                           borderRadius: 4,
                           padding: '1px 5px',
                           fontSize: '0.9em',
@@ -664,7 +667,7 @@ export default function NodeDrawer() {
                       value={customInput}
                       onChange={(e) => { setCustomInput(e.target.value); if (customStatus === 'error') setCustomStatus('idle') }}
                       onKeyDown={(e) => e.key === 'Enter' && handleCustomSubmit()}
-                      placeholder="Or ask about..."
+                      placeholder="Or add your own custom subtopic"
                       disabled={customStatus === 'loading'}
                       style={{
                         flex: 1,

@@ -7,7 +7,6 @@ import ReactFlow, {
   useReactFlow,
   Handle,
   Position,
-  Background,
   type Node,
   type Edge,
   type NodeProps,
@@ -36,8 +35,12 @@ if (typeof document !== 'undefined') {
     el.id = id
     el.textContent = `@keyframes orb-bloom {
       0%   { transform: scale(0); opacity: 0; }
-      65%  { transform: scale(1.12); opacity: 1; }
+      60%  { transform: scale(1.14); opacity: 1; }
       100% { transform: scale(1); opacity: 1; }
+    }
+    @keyframes ink-spread {
+      0%   { transform: scale(0.55); opacity: 0.5; }
+      100% { transform: scale(1.95); opacity: 0; }
     }`
     document.head.appendChild(el)
   }
@@ -98,20 +101,18 @@ function OrbNode({ data }: NodeProps<OrbData>) {
   useEffect(() => {
     if (!data.isNew) return
     setBlooming(true)
-    const t = setTimeout(() => setBlooming(false), 450)
+    const t = setTimeout(() => setBlooming(false), 600)
     return () => clearTimeout(t)
   }, [data.isNew])
 
   const hex = typeHex(data.nodeType)
+  const isRoot = data.depth === 0
+  const lifted = data.isActive || blooming
 
-  let boxShadow: string
-  if (blooming) {
-    boxShadow = `0 0 0 2px ${hex}, 0 0 40px ${hex}cc, 0 0 80px ${hex}60, inset 0 1px 1px rgba(255,255,255,0.2)`
-  } else if (data.isActive) {
-    boxShadow = `0 0 0 2px ${hex}, 0 0 32px ${hex}80, inset 0 1px 1px rgba(255,255,255,0.2)`
-  } else {
-    boxShadow = 'inset 0 1px 1px rgba(255,255,255,0.12)'
-  }
+  // Paper drop shadow always; semantic ink-glow when active/blooming.
+  const filter =
+    `drop-shadow(0 3px 4px rgba(40,30,22,0.22))` +
+    (lifted ? ` drop-shadow(0 0 9px ${hex}aa)` : '')
 
   return (
     <div
@@ -119,24 +120,70 @@ function OrbNode({ data }: NodeProps<OrbData>) {
         width: NODE_RADIUS * 2,
         height: NODE_RADIUS * 2,
         position: 'relative',
-        animation: data.isNew ? 'orb-bloom 500ms cubic-bezier(0,0,0.2,1) forwards' : undefined,
+        animation: data.isNew ? 'orb-bloom 600ms cubic-bezier(0,0,0.2,1) forwards' : undefined,
+        filter,
+        transition: 'filter 400ms cubic-bezier(0,0,0.2,1)',
+        cursor: 'pointer',
       }}
     >
       <Handle type="target" position={Position.Left} style={handleStyle} />
-      <div
+      {/* Page/document card — rendered larger than the physics footprint but
+          centered on it (overflow visible). The DOM box stays NODE_RADIUS*2 so
+          edge handles and the d3 simulation still treat the node as a circle. */}
+      <svg
+        viewBox="0 0 100 100"
         style={{
-          width: '100%',
-          height: '100%',
-          borderRadius: '50%',
-          background: `${hex}20`,
-          backdropFilter: 'blur(12px) saturate(180%)',
-          WebkitBackdropFilter: 'blur(12px) saturate(180%)',
-          border: `1.5px solid ${hex}66`,
-          boxShadow,
-          transition: 'box-shadow 400ms cubic-bezier(0,0,0.2,1)',
-          cursor: 'pointer',
+          display: 'block',
+          overflow: 'visible',
+          position: 'absolute',
+          left: '50%',
+          top: '50%',
+          width: NODE_RADIUS * 3,
+          height: NODE_RADIUS * 3,
+          transform: 'translate(-50%, -50%)',
         }}
-      />
+      >
+        {blooming && (
+          <circle
+            cx="50" cy="50" r="40" fill="none" stroke={hex} strokeWidth="3"
+            style={{ transformOrigin: '50px 50px', animation: 'ink-spread 600ms cubic-bezier(0,0,0.2,1) forwards' }}
+          />
+        )}
+        {/* pressed paper page — body fill + folded top-right corner */}
+        <path
+          d="M30 22 L60 22 L72 34 L72 80 L30 80 Z"
+          fill={`${hex}${data.isActive ? '38' : '24'}`}
+        />
+        <g filter="url(#ink-rough)">
+          {/* page outline */}
+          <path
+            d="M30 22 L60 22 L72 34 L72 80 L30 80 Z"
+            fill="none" stroke={hex}
+            strokeWidth={data.isActive || isRoot ? 3 : 2.2} strokeOpacity="0.9"
+            strokeLinejoin="round" strokeLinecap="round"
+          />
+          {/* folded corner (dog-ear) */}
+          <path
+            d="M60 22 L60 34 L72 34"
+            fill="none" stroke={hex} strokeWidth="2" strokeOpacity="0.7"
+            strokeLinejoin="round" strokeLinecap="round"
+          />
+          {/* text lines — root gets a bolder accent line, others get ruled lines */}
+          {isRoot ? (
+            <>
+              <line x1="38" y1="50" x2="64" y2="50" stroke={hex} strokeWidth="3.5" strokeOpacity="0.7" strokeLinecap="round" />
+              <line x1="38" y1="60" x2="60" y2="60" stroke={hex} strokeWidth="2" strokeOpacity="0.45" strokeLinecap="round" />
+              <line x1="38" y1="68" x2="56" y2="68" stroke={hex} strokeWidth="2" strokeOpacity="0.45" strokeLinecap="round" />
+            </>
+          ) : (
+            <>
+              <line x1="38" y1="52" x2="64" y2="52" stroke={hex} strokeWidth="2" strokeOpacity="0.5" strokeLinecap="round" />
+              <line x1="38" y1="61" x2="62" y2="61" stroke={hex} strokeWidth="2" strokeOpacity="0.45" strokeLinecap="round" />
+              <line x1="38" y1="70" x2="54" y2="70" stroke={hex} strokeWidth="2" strokeOpacity="0.4" strokeLinecap="round" />
+            </>
+          )}
+        </g>
+      </svg>
       <Handle type="source" position={Position.Right} style={handleStyle} />
     </div>
   )
@@ -330,7 +377,13 @@ export default function Graph() {
               source: n.parent_id as string,
               target: n.id,
               type: 'straight',
-              style: { stroke: hex, strokeOpacity: 0.35, strokeWidth: 1.5 },
+              style: {
+                stroke: hex,
+                strokeOpacity: 0.45,
+                strokeWidth: 1.6,
+                strokeLinecap: 'round',
+                filter: 'url(#ink-rough)',
+              },
             }
           })
 
@@ -431,6 +484,16 @@ export default function Graph() {
   return (
     <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative' }}>
 
+      {/* Shared hand-drawn "ink" filter — referenced by node rings and edges */}
+      <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden>
+        <defs>
+          <filter id="ink-rough" x="-20%" y="-20%" width="140%" height="140%">
+            <feTurbulence type="fractalNoise" baseFrequency="0.045" numOctaves="2" seed="7" result="n" />
+            <feDisplacementMap in="SourceGraphic" in2="n" scale="2.2" xChannelSelector="R" yChannelSelector="G" />
+          </filter>
+        </defs>
+      </svg>
+
       {Object.keys(ringRadii).length > 0 && (
         <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 0 }}>
           <g transform={`translate(${viewport.x},${viewport.y}) scale(${viewport.zoom})`}>
@@ -440,7 +503,14 @@ export default function Graph() {
                 cx={center.cx}
                 cy={center.cy}
                 r={r}
-                style={{ fill: 'none', stroke: 'var(--panel-border)', strokeWidth: 1, opacity: 1 }}
+                style={{
+                  fill: 'none',
+                  stroke: 'var(--text-muted)',
+                  strokeWidth: 1.5,
+                  strokeDasharray: '1 9',
+                  strokeLinecap: 'round',
+                  opacity: 0.28,
+                }}
               />
             ))}
           </g>
@@ -487,7 +557,6 @@ export default function Graph() {
         style={{ background: 'transparent', position: 'relative', zIndex: 1 }}
         defaultViewport={{ x: 0, y: 0, zoom: 1 }}
       >
-        <Background color="rgba(172, 172, 172, 0.4)" gap={64} size={2} />
         <CameraController
           activeNodeId={activeNodeId}
           fitViewTrigger={fitViewTrigger}

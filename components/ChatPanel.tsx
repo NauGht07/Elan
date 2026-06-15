@@ -107,8 +107,8 @@ export default function ChatPanel({ nodeId, nodeType, messages, onAddMessage }: 
                 maxWidth: '86%',
                 padding: '9px 13px',
                 borderRadius: '12px 12px 3px 12px',
-                background: 'rgba(255,255,255,0.05)',
-                border: '1px solid rgba(255,255,255,0.08)',
+                background: 'var(--surface)',
+                border: '1px solid var(--surface-border)',
                 fontSize: 14,
                 lineHeight: 1.55,
                 color: 'var(--text-muted)',
@@ -121,8 +121,8 @@ export default function ChatPanel({ nodeId, nodeType, messages, onAddMessage }: 
                 maxWidth: '93%',
                 padding: '11px 13px',
                 borderRadius: '3px 12px 12px 12px',
-                background: 'rgba(255,255,255,0.04)',
-                border: '1px solid rgba(255,255,255,0.08)',
+                background: 'var(--surface)',
+                border: '1px solid var(--surface-border)',
                 borderLeft: `3px solid ${accent}`,
                 fontSize: 14,
                 lineHeight: 1.65,
@@ -141,7 +141,7 @@ export default function ChatPanel({ nodeId, nodeType, messages, onAddMessage }: 
                       return isBlock ? (
                         <code style={{
                           display: 'block',
-                          background: 'rgba(255,255,255,0.06)',
+                          background: 'var(--surface)',
                           border: '1px solid var(--panel-border)',
                           borderRadius: 6,
                           padding: '8px 12px',
@@ -152,7 +152,7 @@ export default function ChatPanel({ nodeId, nodeType, messages, onAddMessage }: 
                         }}>{children}</code>
                       ) : (
                         <code style={{
-                          background: 'rgba(255,255,255,0.08)',
+                          background: 'var(--surface)',
                           borderRadius: 4,
                           padding: '1px 4px',
                           fontSize: '0.88em',
@@ -174,8 +174,8 @@ export default function ChatPanel({ nodeId, nodeType, messages, onAddMessage }: 
             <div style={{
               padding: '10px 14px',
               borderRadius: '3px 12px 12px 12px',
-              background: 'rgba(255,255,255,0.04)',
-              border: '1px solid rgba(255,255,255,0.08)',
+              background: 'var(--surface)',
+              border: '1px solid var(--surface-border)',
               borderLeft: `3px solid ${accent}`,
               fontSize: 13,
               color: 'var(--text-muted)',
@@ -208,7 +208,7 @@ export default function ChatPanel({ nodeId, nodeType, messages, onAddMessage }: 
           rows={1}
           style={{
             flex: 1,
-            background: 'rgba(255,255,255,0.05)',
+            background: 'var(--surface)',
             border: '1px solid var(--panel-border)',
             borderRadius: 10,
             padding: '9px 12px',
@@ -230,7 +230,7 @@ export default function ChatPanel({ nodeId, nodeType, messages, onAddMessage }: 
             width: 34,
             height: 34,
             borderRadius: 8,
-            background: canSend ? `${accent}22` : 'rgba(255,255,255,0.04)',
+            background: canSend ? `${accent}22` : 'var(--surface)',
             border: `1px solid ${canSend ? `${accent}60` : 'var(--panel-border)'}`,
             display: 'flex',
             alignItems: 'center',

@@ -1,45 +1,173 @@
 @import "tailwindcss";
 
+/* ─── Light mode (primary / default) — warm paper ─────────────────────────── */
 :root {
-  --bg: #0D0D12;
-  --text: #E8E8F0;
-  --text-muted: rgba(232, 232, 240, 0.5);
-  --panel-bg: rgba(255, 255, 255, 0.06);
-  --panel-border: rgba(255, 255, 255, 0.1);
+  --bg: #F0E0C8;
+  --bg-warm: #D9AA80;
+  --text: #1A1A2E;
+  --text-muted: rgba(26, 26, 46, 0.5);
+
+  /* Liquid glass slabs (DESIGN2 spec) */
+  --panel-bg: rgba(0, 0, 0, 0.04);
+  --panel-border: rgba(0, 0, 0, 0.08);
+
+  /* Inner surfaces inside panels (bubbles, code, inputs) — mode-aware */
+  --surface: rgba(0, 0, 0, 0.03);
+  --surface-border: rgba(0, 0, 0, 0.08);
+
+  /* Floating-slab depth + rim sheen */
+  --slab-shadow: 0 10px 34px rgba(45, 34, 22, 0.13), 0 2px 8px rgba(45, 34, 22, 0.07);
+  --edge-sheen: rgba(255, 255, 255, 0.65);
+
+  /* Text on a semantic-colored (pastel) button */
+  --on-accent: #1A1A2E;
+
+  /* Modal scrim — warm light dim so glass stays readable on paper */
+  --scrim: rgba(40, 30, 20, 0.25);
+
+
   --node-factual: #7B9EFF;
   --node-practical: #F4B97A;
 }
 
-@media (prefers-color-scheme: light) {
+/* ─── Dark mode — warm charcoal paper (not black) ─────────────────────────── */
+@media (prefers-color-scheme: dark) {
   :root {
-    --bg: #FAF7F2;
-    --text: #1A1A2E;
-    --text-muted: rgba(26, 26, 46, 0.5);
-    --panel-bg: rgba(0, 0, 0, 0.04);
-    --panel-border: rgba(0, 0, 0, 0.08);
+    --bg: #1C1A17;
+    --bg-warm: #262320;
+    --text: #E8E8F0;
+    --text-muted: rgba(232, 232, 240, 0.5);
+
+    --panel-bg: rgba(255, 255, 255, 0.06);
+    --panel-border: rgba(255, 255, 255, 0.1);
+
+    --surface: rgba(255, 255, 255, 0.05);
+    --surface-border: rgba(255, 255, 255, 0.1);
+
+    --slab-shadow: 0 10px 34px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.3);
+    --edge-sheen: rgba(255, 255, 255, 0.12);
+
+    --on-accent: #1A1A2E;
+
+    --scrim: rgba(0, 0, 0, 0.55);
+
   }
 }
 
 body {
-  background: var(--bg);
+  background-color: var(--bg);
+  /* Soft warmth — faint pooled light, sits under the grain */
+  background-image:
+    radial-gradient(120% 90% at 20% 0%, var(--bg-warm) 0%, transparent 55%),
+    radial-gradient(120% 90% at 100% 100%, var(--bg-warm) 0%, transparent 55%);
   color: var(--text);
   font-family: 'DM Sans', sans-serif;
   line-height: 1.7;
   transition:
-    background 0.3s cubic-bezier(0, 0, 0.2, 1),
+    background-color 0.3s cubic-bezier(0, 0, 0.2, 1),
     color 0.3s cubic-bezier(0, 0, 0.2, 1);
 }
 
+/* Paper fold lines — soft directional shadows mimicking page creases */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    linear-gradient(
+      15deg,
+      transparent 25%,
+      rgba(100, 65, 20, 0.04) 38%,
+      rgba(255, 250, 240, 0.055) 41%,
+      transparent 54%
+    ),
+    linear-gradient(
+      97deg,
+      transparent 50%,
+      rgba(100, 65, 20, 0.035) 63%,
+      rgba(255, 250, 240, 0.05) 66%,
+      transparent 78%
+    ),
+    linear-gradient(
+      202deg,
+      transparent 15%,
+      rgba(100, 65, 20, 0.03) 28%,
+      rgba(255, 250, 240, 0.045) 31%,
+      transparent 44%
+    );
+}
+
+@media (prefers-color-scheme: dark) {
+  body::before {
+    background-image:
+      linear-gradient(
+        15deg,
+        transparent 25%,
+        rgba(0, 0, 0, 0.07) 38%,
+        rgba(255, 255, 255, 0.04) 41%,
+        transparent 54%
+      ),
+      linear-gradient(
+        97deg,
+        transparent 50%,
+        rgba(0, 0, 0, 0.07) 63%,
+        rgba(255, 255, 255, 0.04) 66%,
+        transparent 78%
+      ),
+      linear-gradient(
+        202deg,
+        transparent 15%,
+        rgba(0, 0, 0, 0.07) 28%,
+        rgba(255, 255, 255, 0.04) 31%,
+        transparent 44%
+      );
+  }
+}
+
+/* ─── Gradient border — conic-gradient ring masked to perimeter only ───────── */
+.gradient-border {
+  position: relative;
+}
+.gradient-border::before {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  padding: 2px;
+  border-radius: 19px;
+  background: conic-gradient(
+    from 0deg at 50% 50%,
+    transparent 135deg,
+    rgba(255, 255, 255, 1) 147deg,
+    transparent 159deg,
+    transparent 315deg,
+    rgba(255, 255, 255, 1) 327deg,
+    transparent 339deg
+  );
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* ─── Liquid glass slab ───────────────────────────────────────────────────── */
 .glass {
   background: var(--panel-bg);
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
   border: 1px solid var(--panel-border);
   border-radius: 20px;
+  box-shadow: var(--slab-shadow), inset 0 1px 0 var(--edge-sheen);
 }
 
 @keyframes elan-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
 }
-

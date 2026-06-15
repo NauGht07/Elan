@@ -113,7 +113,7 @@ export default function NewTreeModal({ isOpen, onClose, onComplete }: Props) {
         alignItems: 'center',
         justifyContent: 'center',
         padding: 24,
-        background: 'rgba(0,0,0,0.55)',
+        background: 'var(--scrim)',
         backdropFilter: 'blur(4px)',
         WebkitBackdropFilter: 'blur(4px)',
         opacity: visible ? 1 : 0,

@@ -60,13 +60,15 @@ export default function LeftPanel() {
     <aside style={{
       width: isCollapsed ? 60 : 240,
       flexShrink: 0,
-      height: '100vh',
+      margin: 14,
       display: 'flex',
       flexDirection: 'column',
       background: 'var(--panel-bg)',
       backdropFilter: 'blur(24px) saturate(180%)',
       WebkitBackdropFilter: 'blur(24px) saturate(180%)',
-      borderRight: '1px solid var(--panel-border)',
+      border: '1px solid var(--panel-border)',
+      borderRadius: 20,
+      boxShadow: 'var(--slab-shadow), inset 0 1px 0 var(--edge-sheen)',
       overflow: 'hidden',
       transition: 'width 400ms cubic-bezier(0,0,0.2,1)',
     }}>
@@ -343,7 +345,7 @@ export default function LeftPanel() {
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.color = 'var(--text)'
-              e.currentTarget.style.background = 'rgba(255,255,255,0.04)'
+              e.currentTarget.style.background = 'var(--surface)'
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.color = 'var(--text-muted)'
@@ -371,7 +373,7 @@ export default function LeftPanel() {
             alignItems: 'center',
             justifyContent: 'center',
             padding: 24,
-            background: 'rgba(0,0,0,0.55)',
+            background: 'var(--scrim)',
             backdropFilter: 'blur(4px)',
             WebkitBackdropFilter: 'blur(4px)',
           }}

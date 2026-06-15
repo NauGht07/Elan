@@ -25,7 +25,7 @@ export default function AppPage() {
       display: 'flex',
       height: '100vh',
       overflow: 'hidden',
-      background: 'var(--bg)',
+      background: 'transparent',
     }}>
       <LeftPanel />
 

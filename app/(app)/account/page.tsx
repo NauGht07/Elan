@@ -16,7 +16,7 @@ export default async function AccountPage() {
       alignItems: 'center',
       justifyContent: 'center',
       padding: 24,
-      background: 'var(--bg)',
+      background: 'transparent',
     }}>
       <div className="glass" style={{
         width: '100%',
