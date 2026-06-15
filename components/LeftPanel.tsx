@@ -374,8 +374,6 @@ export default function LeftPanel() {
             justifyContent: 'center',
             padding: 24,
             background: 'var(--scrim)',
-            backdropFilter: 'blur(4px)',
-            WebkitBackdropFilter: 'blur(4px)',
           }}
         >
           <div

@@ -114,8 +114,6 @@ export default function NewTreeModal({ isOpen, onClose, onComplete }: Props) {
         justifyContent: 'center',
         padding: 24,
         background: 'var(--scrim)',
-        backdropFilter: 'blur(4px)',
-        WebkitBackdropFilter: 'blur(4px)',
         opacity: visible ? 1 : 0,
         transition: 'opacity 200ms cubic-bezier(0,0,0.2,1)',
       }}
