@@ -36,6 +36,7 @@
   --glass-corner-br: rgba(255, 255, 255, 0.13);
   --glass-bevel: rgba(90, 60, 25, 0.12);
   --glass-border-highlight: rgba(255, 255, 255, 0.95);
+  --auth-overlay: rgba(240, 224, 200, 0.82);
 }
 
 /* ─── Dark mode — warm charcoal paper (not black) ─────────────────────────── */
@@ -58,7 +59,60 @@
     --on-accent: #1A1A2E;
 
     --scrim: rgba(0, 0, 0, 0.55);
+    --auth-overlay: rgba(31, 29, 25, 0.94);
+    --glass-tint: rgba(255, 255, 255, 0.08);
+    --glass-inset-shadow: rgba(0, 0, 0, 0.35);
+    --glass-corner-tl: rgba(255, 255, 255, 0.15);
+    --glass-corner-br: rgba(255, 255, 255, 0.08);
+    --glass-bevel: rgba(255, 255, 255, 0.07);
+    --glass-border-highlight: rgba(255, 255, 255, 0.90);
   }
+}
+
+/* ─── Forced dark (user toggle, wins over OS light) ──────────────────────── */
+:root[data-theme="dark"] {
+  --bg: #1C1A17;
+  --bg-warm: #262320;
+  --text: #E8E8F0;
+  --text-muted: rgba(232, 232, 240, 0.5);
+  --panel-bg: rgba(255, 255, 255, 0.06);
+  --panel-border: rgba(255, 255, 255, 0.1);
+  --surface: rgba(255, 255, 255, 0.05);
+  --surface-border: rgba(255, 255, 255, 0.1);
+  --slab-shadow: 0 10px 34px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.3);
+  --edge-sheen: rgba(255, 255, 255, 0.12);
+  --on-accent: #1A1A2E;
+  --scrim: rgba(0, 0, 0, 0.55);
+  --auth-overlay: rgba(31, 29, 25, 0.94);
+  --glass-tint: rgba(255, 255, 255, 0.08);
+  --glass-inset-shadow: rgba(0, 0, 0, 0.35);
+  --glass-corner-tl: rgba(255, 255, 255, 0.15);
+  --glass-corner-br: rgba(255, 255, 255, 0.08);
+  --glass-bevel: rgba(255, 255, 255, 0.07);
+  --glass-border-highlight: rgba(255, 255, 255, 0.90);
+}
+
+/* ─── Forced light (user toggle, wins over OS dark) ──────────────────────── */
+:root[data-theme="light"] {
+  --bg: #F0E0C8;
+  --bg-warm: #D9AA80;
+  --text: #1A1A2E;
+  --text-muted: rgba(26, 26, 46, 0.5);
+  --panel-bg: rgb(255, 255, 255, 0.1);
+  --panel-border: rgba(0, 0, 0, 0.08);
+  --surface: rgba(0, 0, 0, 0.03);
+  --surface-border: rgba(0, 0, 0, 0.08);
+  --slab-shadow: 0 10px 34px rgba(45, 34, 22, 0.13), 0 2px 8px rgba(45, 34, 22, 0.07);
+  --edge-sheen: rgba(255, 255, 255, 0.65);
+  --on-accent: #1A1A2E;
+  --scrim: rgba(40, 30, 20, 0.25);
+  --auth-overlay: rgba(240, 224, 200, 0.82);
+  --glass-tint: rgba(240, 224, 200, 0.45);
+  --glass-inset-shadow: rgba(0, 0, 0, 0.12);
+  --glass-corner-tl: rgba(255, 255, 255, 0.22);
+  --glass-corner-br: rgba(255, 255, 255, 0.13);
+  --glass-bevel: rgba(90, 60, 25, 0.12);
+  --glass-border-highlight: rgba(255, 255, 255, 0.95);
 }
 
 body {
@@ -131,6 +185,20 @@ body::before {
         transparent 44%
       );
   }
+}
+
+/* ─── Forced theme body::before overrides ────────────────────────────────── */
+[data-theme="dark"] body::before {
+  background-image:
+    linear-gradient(15deg, transparent 25%, rgba(0,0,0,0.07) 38%, rgba(255,255,255,0.04) 41%, transparent 54%),
+    linear-gradient(97deg, transparent 50%, rgba(0,0,0,0.07) 63%, rgba(255,255,255,0.04) 66%, transparent 78%),
+    linear-gradient(202deg, transparent 15%, rgba(0,0,0,0.07) 28%, rgba(255,255,255,0.04) 31%, transparent 44%);
+}
+[data-theme="light"] body::before {
+  background-image:
+    linear-gradient(15deg, transparent 25%, rgba(100,65,20,0.04) 38%, rgba(255,250,240,0.055) 41%, transparent 54%),
+    linear-gradient(97deg, transparent 50%, rgba(100,65,20,0.035) 63%, rgba(255,250,240,0.05) 66%, transparent 78%),
+    linear-gradient(202deg, transparent 15%, rgba(100,65,20,0.03) 28%, rgba(255,250,240,0.045) 31%, transparent 44%);
 }
 
 /* ─── Gradient border — conic-gradient ring masked to perimeter only ───────── */

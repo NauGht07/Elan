@@ -1,14 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@/lib/supabase-browser'
 
-/* ── Auth page palette ── */
-const INK = '#2A2620'
-const INK_MUTED = 'rgba(42, 38, 32, 0.52)'
 const FACTUAL = '#7B9EFF'
-
 
 export default function AuthPage() {
   const router = useRouter()
@@ -18,8 +14,18 @@ export default function AuthPage() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [focusedField, setFocusedField] = useState<string | null>(null)
+  const [theme, setTheme] = useState<'light' | 'dark' | null>(null)
 
   const supabase = createBrowserClient()
+
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    setTheme(mq.matches ? 'dark' : 'light')
+  }, [])
+
+  useEffect(() => {
+    if (theme) document.documentElement.dataset.theme = theme
+  }, [theme])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -44,9 +50,9 @@ export default function AuthPage() {
     width: '100%',
     boxSizing: 'border-box',
     background: 'rgba(255, 255, 255, 0.1)',
-    border: `1px solid ${focusedField === field ? 'rgba(123,158,255,0.55)' : 'rgba(42,38,32,0.10)'}`,
+    border: `1px solid ${focusedField === field ? 'rgba(123,158,255,0.55)' : 'var(--panel-border)'}`,
     borderRadius: 11,
-    color: INK,
+    color: 'var(--text)',
     fontSize: 14,
     fontFamily: 'inherit',
     padding: '11px 14px',
@@ -74,21 +80,50 @@ export default function AuthPage() {
         alignItems: 'center',
         justifyContent: 'center',
         padding: 24,
-        // backgroundColor: '#F0E0C8',
         backgroundImage: "url('/paper-texture.png')",
         backgroundSize: 'cover',
         backgroundPosition: 'center',
         overflow: 'hidden',
       }}
     >
-      {/* Warm cream overlay — lets texture show through subtly */}
+      {/* Theme toggle */}
+      {theme && (
+        <button
+          onClick={() => setTheme(t => t === 'light' ? 'dark' : 'light')}
+          aria-label="Toggle theme"
+          style={{
+            position: 'fixed',
+            top: 20,
+            right: 20,
+            cursor: 'pointer',
+            padding: '6px 14px',
+            borderRadius: 20,
+            background: 'var(--panel-bg)',
+            border: '1px solid var(--panel-border)',
+            backdropFilter: 'blur(12px)',
+            WebkitBackdropFilter: 'blur(12px)',
+            color: 'var(--text)',
+            fontSize: 12,
+            fontFamily: 'inherit',
+            fontWeight: 500,
+            letterSpacing: '0.04em',
+            boxShadow: 'var(--slab-shadow)',
+            transition: 'color 0.3s cubic-bezier(0,0,0.2,1), background 0.3s cubic-bezier(0,0,0.2,1)',
+          }}
+        >
+          {theme === 'light' ? 'Dark' : 'Light'}
+        </button>
+      )}
+
+      {/* Overlay — light: warm cream, dark: warm charcoal */}
       <div
         aria-hidden
         style={{
           position: 'absolute',
           inset: 0,
           pointerEvents: 'none',
-          background: 'rgba(240, 224, 200, 0.82)',
+          background: 'var(--auth-overlay)',
+          transition: 'background 0.3s cubic-bezier(0,0,0.2,1)',
         }}
       />
 
@@ -128,7 +163,7 @@ export default function AuthPage() {
               margin: 0,
               fontSize: 20,
               fontWeight: 600,
-              color: INK,
+              color: 'var(--text)',
               lineHeight: 1.3,
             }}
           >
@@ -144,7 +179,7 @@ export default function AuthPage() {
                   fontWeight: 600,
                   letterSpacing: '0.08em',
                   textTransform: 'uppercase',
-                  color: INK_MUTED,
+                  color: 'var(--text-muted)',
                 }}
               >
                 Email
@@ -170,7 +205,7 @@ export default function AuthPage() {
                   fontWeight: 600,
                   letterSpacing: '0.08em',
                   textTransform: 'uppercase',
-                  color: INK_MUTED,
+                  color: 'var(--text-muted)',
                 }}
               >
                 Password
@@ -189,14 +224,7 @@ export default function AuthPage() {
             </div>
 
             {error && (
-              <p
-                style={{
-                  margin: 0,
-                  fontSize: 13,
-                  color: '#B5713A',
-                  lineHeight: 1.4,
-                }}
-              >
+              <p style={{ margin: 0, fontSize: 13, color: '#B5713A', lineHeight: 1.4 }}>
                 {error}
               </p>
             )}
@@ -213,7 +241,7 @@ export default function AuthPage() {
                 padding: '11px 0',
                 borderRadius: 50,
                 background: 'rgba(86, 128, 255, 0.69)',
-                color: '#15182B',
+                color: 'var(--text)',
                 fontSize: 14,
                 fontFamily: 'inherit',
                 fontWeight: 600,
@@ -231,35 +259,34 @@ export default function AuthPage() {
               {loading ? 'On it...' : mode === 'login' ? 'Log in' : 'Sign up'}
             </button>
           </form>
-      <p
-        style={{
-          position: 'relative',
-          marginTop: 20,
-          fontSize: 13,
-          color: INK_MUTED,
-          textAlign: 'center',
-        }}
-      >
-        {mode === 'login' ? "Don't have an account? " : 'Already have an account? '}
-        <button
-          type="button"
-          onClick={() => {
-            setMode(mode === 'login' ? 'signup' : 'login')
-            setError(null)
-          }}
-          style={{
-            all: 'unset',
-            cursor: 'pointer',
-            color: FACTUAL,
-            fontWeight: 600,
-          }}
-        >
-          {mode === 'login' ? 'Sign up' : 'Log in'}
-        </button>
-      </p>
+
+          <p
+            style={{
+              margin: 0,
+              fontSize: 13,
+              color: 'var(--text-muted)',
+              textAlign: 'center',
+            }}
+          >
+            {mode === 'login' ? "Don't have an account? " : 'Already have an account? '}
+            <button
+              type="button"
+              onClick={() => {
+                setMode(mode === 'login' ? 'signup' : 'login')
+                setError(null)
+              }}
+              style={{
+                all: 'unset',
+                cursor: 'pointer',
+                color: FACTUAL,
+                fontWeight: 600,
+              }}
+            >
+              {mode === 'login' ? 'Sign up' : 'Log in'}
+            </button>
+          </p>
         </div>
       </div>
-
     </main>
   )
 }
