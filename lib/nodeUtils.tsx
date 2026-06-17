@@ -1,7 +1,7 @@
 import type { NodeType } from '@/types'
 
 export const FACTUAL_HEX = '#7B9EFF'
-export const PRACTICAL_HEX = '#F4B97A'
+export const PRACTICAL_HEX = '#C47070'
 
 export function typeHex(type: NodeType): string {
   return type === 'factual' ? FACTUAL_HEX : PRACTICAL_HEX

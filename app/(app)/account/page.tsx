@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import Link from 'next/link'
 import { createServerClient } from '@/lib/supabase-server'
 import SignOutButton from '@/components/SignOutButton'
 
@@ -28,7 +29,7 @@ export default async function AccountPage() {
       }}>
 
         {/* Header */}
-        <div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <h1 style={{
             margin: 0,
             fontSize: 22,
@@ -38,6 +39,23 @@ export default async function AccountPage() {
           }}>
             Account
           </h1>
+          <Link
+            href="/"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 32,
+              height: 32,
+              borderRadius: 8,
+              color: 'var(--text-muted)',
+              textDecoration: 'none',
+              fontSize: 22,
+              lineHeight: 1,
+            }}
+          >
+            ×
+          </Link>
         </div>
 
         {/* Profile */}

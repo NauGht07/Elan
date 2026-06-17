@@ -243,17 +243,22 @@ export default function NodeDrawer() {
     transition: 'width 400ms cubic-bezier(0,0,0.2,1)',
     display: 'flex',
     flexDirection: 'column',
-    background: 'var(--panel-bg)',
-    backdropFilter: 'blur(24px) saturate(180%)',
-    WebkitBackdropFilter: 'blur(24px) saturate(180%)',
-    border: expanded ? 'none' : '1px solid var(--panel-border)',
-    borderRadius: expanded ? 0 : 20,
-    boxShadow: expanded ? 'none' : 'var(--slab-shadow), inset 0 1px 0 var(--edge-sheen)',
     overflow: 'hidden',
+    ...(expanded ? {
+      background: 'var(--panel-bg)',
+      backdropFilter: 'blur(24px) saturate(180%)',
+      WebkitBackdropFilter: 'blur(24px) saturate(180%)',
+      borderRadius: 0,
+    } : {
+      boxShadow: 'var(--slab-shadow), inset 0 0 22px var(--glass-inset-shadow)',
+    }),
   }
 
   return (
-    <aside style={panelStyle}>
+    <aside className={expanded ? undefined : 'gradient-border glass-card'} style={panelStyle}>
+      {!expanded && <div aria-hidden className="glass-card-corner-tl" />}
+      {!expanded && <div aria-hidden className="glass-card-corner-br" />}
+      {!expanded && <div aria-hidden className="glass-card-bevel" />}
 
       {/* Header */}
       <div style={{

@@ -21,6 +21,20 @@ export default function LeftPanel() {
   const [loading, setLoading] = useState(true)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null)
+  const [theme, setTheme] = useState<'light' | 'dark' | null>(null)
+
+  useEffect(() => {
+    const saved = document.documentElement.dataset.theme as 'light' | 'dark' | undefined
+    if (saved === 'light' || saved === 'dark') { setTheme(saved); return }
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    setTheme(mq.matches ? 'dark' : 'light')
+  }, [])
+
+  useEffect(() => {
+    if (theme) document.documentElement.dataset.theme = theme
+  }, [theme])
+
+  function toggleTheme() { setTheme(t => t === 'light' ? 'dark' : 'light') }
 
   useEffect(() => {
     const supabase = createBrowserClient()
@@ -57,21 +71,24 @@ export default function LeftPanel() {
   }
 
   return (
-    <aside style={{
-      width: isCollapsed ? 60 : 240,
-      flexShrink: 0,
-      margin: 14,
-      display: 'flex',
-      flexDirection: 'column',
-      background: 'var(--panel-bg)',
-      backdropFilter: 'blur(24px) saturate(180%)',
-      WebkitBackdropFilter: 'blur(24px) saturate(180%)',
-      border: '1px solid var(--panel-border)',
-      borderRadius: 20,
-      boxShadow: 'var(--slab-shadow), inset 0 1px 0 var(--edge-sheen)',
-      overflow: 'hidden',
-      transition: 'width 400ms cubic-bezier(0,0,0.2,1)',
-    }}>
+    <aside
+      className="gradient-border glass-card"
+      style={{
+        position: 'fixed',
+        top: 14,
+        left: 14,
+        bottom: 14,
+        width: isCollapsed ? 60 : 240,
+        zIndex: 100,
+        display: 'flex',
+        flexDirection: 'column',
+        boxShadow: 'var(--slab-shadow), inset 0 0 22px var(--glass-inset-shadow)',
+        transition: 'width 400ms cubic-bezier(0,0,0.2,1)',
+      }}
+    >
+      <div aria-hidden className="glass-card-corner-tl" />
+      <div aria-hidden className="glass-card-corner-br" />
+      <div aria-hidden className="glass-card-bevel" />
 
       {/* Top bar */}
       <div style={{
@@ -302,62 +319,138 @@ export default function LeftPanel() {
       {/* Separator */}
       <div style={{ height: 1, flexShrink: 0, background: 'var(--panel-border)' }} />
 
-      {/* Account */}
+      {/* Account + theme toggle */}
       {isCollapsed ? (
-        <Link
-          href="/account"
-          title="Account"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            width: '100%',
-            height: 48,
-            flexShrink: 0,
-            color: 'var(--text-muted)',
-            textDecoration: 'none',
-            transition: 'color 0.15s cubic-bezier(0,0,0.2,1)',
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--node-factual)')}
-          onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
-        >
-          <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="7.5" cy="5" r="2.5" stroke="currentColor" strokeWidth="1.2" />
-            <path d="M2 13c0-3 2.5-4.5 5.5-4.5S13 10 13 13" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-          </svg>
-        </Link>
-      ) : (
-        <div style={{ padding: '10px 16px 14px', flexShrink: 0 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
           <Link
             href="/account"
+            title="Account"
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: 10,
-              padding: '8px 10px',
-              borderRadius: 8,
-              textDecoration: 'none',
+              justifyContent: 'center',
+              width: '100%',
+              height: 44,
               color: 'var(--text-muted)',
-              fontSize: 13,
-              fontFamily: 'inherit',
-              fontWeight: 400,
-              transition: 'color 0.15s cubic-bezier(0,0,0.2,1), background 0.15s cubic-bezier(0,0,0.2,1)',
+              textDecoration: 'none',
+              transition: 'color 0.15s cubic-bezier(0,0,0.2,1)',
             }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.color = 'var(--text)'
-              e.currentTarget.style.background = 'var(--surface)'
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.color = 'var(--text-muted)'
-              e.currentTarget.style.background = 'transparent'
-            }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--node-factual)')}
+            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
           >
-            <svg width="14" height="14" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+            <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
               <circle cx="7.5" cy="5" r="2.5" stroke="currentColor" strokeWidth="1.2" />
               <path d="M2 13c0-3 2.5-4.5 5.5-4.5S13 10 13 13" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
             </svg>
-            Account
           </Link>
+          {theme && (
+            <button
+              onClick={toggleTheme}
+              title={theme === 'light' ? 'Switch to dark' : 'Switch to light'}
+              style={{
+                all: 'unset',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '100%',
+                height: 40,
+                color: 'var(--text-muted)',
+                transition: 'color 0.15s cubic-bezier(0,0,0.2,1)',
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--text)')}
+              onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
+            >
+              {theme === 'light' ? (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+                </svg>
+              ) : (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
+                  <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+                  <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
+                  <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                </svg>
+              )}
+            </button>
+          )}
+        </div>
+      ) : (
+        <div style={{ padding: '10px 16px 14px', flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <Link
+              href="/account"
+              style={{
+                flex: 1,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                padding: '8px 10px',
+                borderRadius: 8,
+                textDecoration: 'none',
+                color: 'var(--text-muted)',
+                fontSize: 13,
+                fontFamily: 'inherit',
+                fontWeight: 400,
+                transition: 'color 0.15s cubic-bezier(0,0,0.2,1), background 0.15s cubic-bezier(0,0,0.2,1)',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = 'var(--text)'
+                e.currentTarget.style.background = 'var(--surface)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = 'var(--text-muted)'
+                e.currentTarget.style.background = 'transparent'
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 15 15" fill="none" style={{ flexShrink: 0 }}>
+                <circle cx="7.5" cy="5" r="2.5" stroke="currentColor" strokeWidth="1.2" />
+                <path d="M2 13c0-3 2.5-4.5 5.5-4.5S13 10 13 13" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+              </svg>
+              Account
+            </Link>
+            {theme && (
+              <button
+                onClick={toggleTheme}
+                title={theme === 'light' ? 'Switch to dark' : 'Switch to light'}
+                style={{
+                  all: 'unset',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: 32,
+                  height: 32,
+                  borderRadius: 6,
+                  color: 'var(--text-muted)',
+                  flexShrink: 0,
+                  transition: 'color 0.15s cubic-bezier(0,0,0.2,1), background 0.15s cubic-bezier(0,0,0.2,1)',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = 'var(--text)'
+                  e.currentTarget.style.background = 'var(--surface)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = 'var(--text-muted)'
+                  e.currentTarget.style.background = 'transparent'
+                }}
+              >
+                {theme === 'light' ? (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+                  </svg>
+                ) : (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
+                    <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+                    <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
+                    <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                  </svg>
+                )}
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -377,7 +470,7 @@ export default function LeftPanel() {
           }}
         >
           <div
-            className="glass"
+            className="gradient-border glass-card"
             style={{
               width: '100%',
               maxWidth: 360,
@@ -387,6 +480,10 @@ export default function LeftPanel() {
               gap: 14,
             }}
           >
+            <div aria-hidden className="glass-card-corner-tl" />
+            <div aria-hidden className="glass-card-corner-br" />
+            <div aria-hidden className="glass-card-bevel" />
+            <div style={{ position: 'relative', zIndex: 3, display: 'flex', flexDirection: 'column', gap: 14 }}>
             <h3 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: 'var(--text)', lineHeight: 1.3 }}>
               Delete this tree?
             </h3>
@@ -432,6 +529,7 @@ export default function LeftPanel() {
               >
                 Delete
               </button>
+            </div>
             </div>
           </div>
         </div>,

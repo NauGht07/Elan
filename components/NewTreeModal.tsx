@@ -119,7 +119,7 @@ export default function NewTreeModal({ isOpen, onClose, onComplete }: Props) {
       }}
     >
       <div
-        className="glass"
+        className="gradient-border glass-card"
         style={{
           width: '100%',
           maxWidth: 480,
@@ -131,6 +131,10 @@ export default function NewTreeModal({ isOpen, onClose, onComplete }: Props) {
           transition: 'transform 200ms cubic-bezier(0,0,0.2,1)',
         }}
       >
+        <div aria-hidden className="glass-card-corner-tl" />
+        <div aria-hidden className="glass-card-corner-br" />
+        <div aria-hidden className="glass-card-bevel" />
+        <div style={{ position: 'relative', zIndex: 3, display: 'flex', flexDirection: 'column', gap: 20 }}>
         {disambiguating ? (
           <>
             <h2 style={{ margin: 0, fontSize: 22, fontWeight: 600, color: 'var(--text)', lineHeight: 1.3 }}>
@@ -266,6 +270,7 @@ export default function NewTreeModal({ isOpen, onClose, onComplete }: Props) {
             </button>
           </>
         )}
+        </div>
       </div>
     </div>
   )

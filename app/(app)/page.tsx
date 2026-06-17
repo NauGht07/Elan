@@ -22,10 +22,10 @@ export default function AppPage() {
 
   return (
     <div style={{
+      position: 'relative',
       display: 'flex',
       height: '100vh',
       overflow: 'hidden',
-      background: 'transparent',
     }}>
       <LeftPanel />
 

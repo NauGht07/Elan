@@ -50,8 +50,9 @@ if (typeof document !== 'undefined') {
 
 const NODE_RADIUS = 28
 const FACTUAL_HEX = '#7B9EFF'
-const PRACTICAL_HEX = '#F4B97A'
+const PRACTICAL_HEX = '#C47070'
 const DRIFT = 0.15
+const TEXTURE_SIZE = 2400
 
 function typeHex(type: NodeType) {
   return type === 'factual' ? FACTUAL_HEX : PRACTICAL_HEX
@@ -109,10 +110,9 @@ function OrbNode({ data }: NodeProps<OrbData>) {
   const isRoot = data.depth === 0
   const lifted = data.isActive || blooming
 
-  // Paper drop shadow always; semantic ink-glow when active/blooming.
-  const filter =
-    `drop-shadow(0 3px 4px rgba(40,30,22,0.22))` +
-    (lifted ? ` drop-shadow(0 0 9px ${hex}aa)` : '')
+  const filter = lifted
+    ? 'drop-shadow(0 8px 18px rgba(40,30,22,0.38)) drop-shadow(0 2px 5px rgba(40,30,22,0.22))'
+    : 'drop-shadow(0 2px 6px rgba(40,30,22,0.24))'
 
   return (
     <div
@@ -122,14 +122,12 @@ function OrbNode({ data }: NodeProps<OrbData>) {
         position: 'relative',
         animation: data.isNew ? 'orb-bloom 600ms cubic-bezier(0,0,0.2,1) forwards' : undefined,
         filter,
-        transition: 'filter 400ms cubic-bezier(0,0,0.2,1)',
+        transform: data.isActive ? 'scale(1.18)' : 'scale(1)',
+        transition: 'filter 400ms cubic-bezier(0,0,0.2,1), transform 400ms cubic-bezier(0,0,0.2,1)',
         cursor: 'pointer',
       }}
     >
       <Handle type="target" position={Position.Left} style={handleStyle} />
-      {/* Page/document card — rendered larger than the physics footprint but
-          centered on it (overflow visible). The DOM box stays NODE_RADIUS*2 so
-          edge handles and the d3 simulation still treat the node as a circle. */}
       <svg
         viewBox="0 0 100 100"
         style={{
@@ -138,8 +136,8 @@ function OrbNode({ data }: NodeProps<OrbData>) {
           position: 'absolute',
           left: '50%',
           top: '50%',
-          width: NODE_RADIUS * 3,
-          height: NODE_RADIUS * 3,
+          width: isRoot ? NODE_RADIUS * 4 : NODE_RADIUS * 3,
+          height: isRoot ? NODE_RADIUS * 4 : NODE_RADIUS * 3,
           transform: 'translate(-50%, -50%)',
         }}
       >
@@ -149,37 +147,36 @@ function OrbNode({ data }: NodeProps<OrbData>) {
             style={{ transformOrigin: '50px 50px', animation: 'ink-spread 600ms cubic-bezier(0,0,0.2,1) forwards' }}
           />
         )}
-        {/* pressed paper page — body fill + folded top-right corner */}
-        <path
-          d="M30 22 L60 22 L72 34 L72 80 L30 80 Z"
-          fill={`${hex}${data.isActive ? '38' : '24'}`}
-        />
+        {/* Solid fill */}
+        <path d="M30 22 L60 22 L72 34 L72 80 L30 80 Z" fill={hex} />
+        {/* Dog-ear fold shadow */}
+        <path d="M60 22 L60 34 L72 34 Z" fill="rgba(0,0,0,0.12)" />
         <g filter="url(#ink-rough)">
-          {/* page outline */}
+          {/* Outline */}
           <path
             d="M30 22 L60 22 L72 34 L72 80 L30 80 Z"
-            fill="none" stroke={hex}
-            strokeWidth={data.isActive || isRoot ? 3 : 2.2} strokeOpacity="0.9"
+            fill="none" stroke="rgba(0,0,0,0.18)"
+            strokeWidth={data.isActive || isRoot ? 3 : 2.2}
             strokeLinejoin="round" strokeLinecap="round"
           />
-          {/* folded corner (dog-ear) */}
+          {/* Dog-ear crease */}
           <path
             d="M60 22 L60 34 L72 34"
-            fill="none" stroke={hex} strokeWidth="2" strokeOpacity="0.7"
+            fill="none" stroke="rgba(0,0,0,0.18)" strokeWidth="2"
             strokeLinejoin="round" strokeLinecap="round"
           />
-          {/* text lines — root gets a bolder accent line, others get ruled lines */}
+          {/* Text lines — white on solid color background */}
           {isRoot ? (
             <>
-              <line x1="38" y1="50" x2="64" y2="50" stroke={hex} strokeWidth="3.5" strokeOpacity="0.7" strokeLinecap="round" />
-              <line x1="38" y1="60" x2="60" y2="60" stroke={hex} strokeWidth="2" strokeOpacity="0.45" strokeLinecap="round" />
-              <line x1="38" y1="68" x2="56" y2="68" stroke={hex} strokeWidth="2" strokeOpacity="0.45" strokeLinecap="round" />
+              <line x1="38" y1="50" x2="64" y2="50" stroke="white" strokeWidth="3.5" strokeOpacity="0.75" strokeLinecap="round" />
+              <line x1="38" y1="60" x2="60" y2="60" stroke="white" strokeWidth="2" strokeOpacity="0.45" strokeLinecap="round" />
+              <line x1="38" y1="68" x2="56" y2="68" stroke="white" strokeWidth="2" strokeOpacity="0.4" strokeLinecap="round" />
             </>
           ) : (
             <>
-              <line x1="38" y1="52" x2="64" y2="52" stroke={hex} strokeWidth="2" strokeOpacity="0.5" strokeLinecap="round" />
-              <line x1="38" y1="61" x2="62" y2="61" stroke={hex} strokeWidth="2" strokeOpacity="0.45" strokeLinecap="round" />
-              <line x1="38" y1="70" x2="54" y2="70" stroke={hex} strokeWidth="2" strokeOpacity="0.4" strokeLinecap="round" />
+              <line x1="38" y1="52" x2="64" y2="52" stroke="white" strokeWidth="2" strokeOpacity="0.55" strokeLinecap="round" />
+              <line x1="38" y1="61" x2="62" y2="61" stroke="white" strokeWidth="2" strokeOpacity="0.45" strokeLinecap="round" />
+              <line x1="38" y1="70" x2="54" y2="70" stroke="white" strokeWidth="2" strokeOpacity="0.4" strokeLinecap="round" />
             </>
           )}
         </g>
@@ -494,6 +491,31 @@ export default function Graph() {
         </defs>
       </svg>
 
+      {/* Paper texture — scrolls and zooms with the graph viewport */}
+      <div
+        aria-hidden
+        style={{
+          position: 'absolute',
+          inset: 0,
+          pointerEvents: 'none',
+          backgroundImage: "url('/paper-texture.png')",
+          backgroundRepeat: 'repeat',
+          backgroundSize: `${TEXTURE_SIZE * viewport.zoom}px ${TEXTURE_SIZE * viewport.zoom}px`,
+          backgroundPosition: `${viewport.x}px ${viewport.y}px`,
+        }}
+      />
+      {/* Warm tint overlay — softens texture, theme-aware */}
+      <div
+        aria-hidden
+        style={{
+          position: 'absolute',
+          inset: 0,
+          pointerEvents: 'none',
+          background: 'var(--canvas-overlay)',
+          transition: 'background 0.3s cubic-bezier(0,0,0.2,1)',
+        }}
+      />
+
       {Object.keys(ringRadii).length > 0 && (
         <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 0 }}>
           <g transform={`translate(${viewport.x},${viewport.y}) scale(${viewport.zoom})`}>
@@ -505,11 +527,10 @@ export default function Graph() {
                 r={r}
                 style={{
                   fill: 'none',
-                  stroke: 'var(--text-muted)',
-                  strokeWidth: 1.5,
-                  strokeDasharray: '1 9',
+                  stroke: 'var(--ring-stroke)',
+                  strokeWidth: 2,
+                  strokeDasharray: '4 10',
                   strokeLinecap: 'round',
-                  opacity: 0.28,
                 }}
               />
             ))}
