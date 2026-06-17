@@ -19,12 +19,13 @@ export default function AuthPage() {
   const supabase = createBrowserClient()
 
   useEffect(() => {
-    const mq = window.matchMedia('(prefers-color-scheme: dark)')
-    setTheme(mq.matches ? 'dark' : 'light')
+    setTheme(document.documentElement.classList.contains('dark') ? 'dark' : 'light')
   }, [])
 
   useEffect(() => {
-    if (theme) document.documentElement.dataset.theme = theme
+    if (!theme) return
+    document.documentElement.classList.toggle('dark', theme === 'dark')
+    document.cookie = `elan-theme=${theme}; max-age=31536000; path=/`
   }, [theme])
 
   async function handleSubmit(e: React.FormEvent) {

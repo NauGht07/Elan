@@ -37,6 +37,24 @@ export default function AppPage() {
         justifyContent: 'center',
         position: 'relative',
       }}>
+        {/* Paper texture — always present, static in empty state */}
+        <div aria-hidden style={{
+          position: 'absolute',
+          inset: 0,
+          pointerEvents: 'none',
+          backgroundImage: "url('/paper-texture.png')",
+          backgroundRepeat: 'repeat',
+          backgroundSize: '400px 400px',
+        }} />
+        {/* Warm tint overlay — theme-aware */}
+        <div aria-hidden style={{
+          position: 'absolute',
+          inset: 0,
+          pointerEvents: 'none',
+          background: 'var(--canvas-overlay)',
+          transition: 'background 0.3s cubic-bezier(0,0,0.2,1)',
+        }} />
+
         {selectedTreeId ? (
           <Graph />
         ) : (
@@ -47,6 +65,8 @@ export default function AppPage() {
             letterSpacing: '0.02em',
             userSelect: 'none',
             pointerEvents: 'none',
+            position: 'relative',
+            zIndex: 1,
           }}>
             Pick a tree to explore
           </p>

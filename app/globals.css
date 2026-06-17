@@ -42,39 +42,7 @@
 }
 
 /* ─── Dark mode — warm charcoal paper (not black) ─────────────────────────── */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #1C1A17;
-    --bg-warm: #262320;
-    --text: #E8E8F0;
-    --text-muted: rgba(232, 232, 240, 0.5);
-
-    --panel-bg: rgba(255, 255, 255, 0.06);
-    --panel-border: rgba(255, 255, 255, 0.1);
-
-    --surface: rgba(255, 255, 255, 0.05);
-    --surface-border: rgba(255, 255, 255, 0.1);
-
-    --slab-shadow: 0 10px 34px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.3);
-    --edge-sheen: rgba(255, 255, 255, 0.12);
-
-    --on-accent: #1A1A2E;
-
-    --scrim: rgba(0, 0, 0, 0.55);
-    --auth-overlay: rgba(31, 29, 25, 0.94);
-    --canvas-overlay: rgba(10, 8, 6, 0.97);
-    --ring-stroke: rgba(210, 185, 140, 0.38);
-    --glass-tint: rgba(255, 255, 255, 0.08);
-    --glass-inset-shadow: rgba(0, 0, 0, 0.35);
-    --glass-corner-tl: rgba(255, 255, 255, 0.15);
-    --glass-corner-br: rgba(255, 255, 255, 0.08);
-    --glass-bevel: rgba(255, 255, 255, 0.07);
-    --glass-border-highlight: rgba(255, 255, 255, 0.90);
-  }
-}
-
-/* ─── Forced dark (user toggle, wins over OS light) ──────────────────────── */
-:root[data-theme="dark"] {
+html.dark {
   --bg: #1C1A17;
   --bg-warm: #262320;
   --text: #E8E8F0;
@@ -88,38 +56,14 @@
   --on-accent: #1A1A2E;
   --scrim: rgba(0, 0, 0, 0.55);
   --auth-overlay: rgba(31, 29, 25, 0.94);
-  --canvas-overlay: rgba(10, 8, 6, 0.94);
+  --canvas-overlay: rgba(10, 8, 6, 0.97);
+  --ring-stroke: rgba(210, 185, 140, 0.38);
   --glass-tint: rgba(255, 255, 255, 0.08);
   --glass-inset-shadow: rgba(0, 0, 0, 0.35);
   --glass-corner-tl: rgba(255, 255, 255, 0.15);
   --glass-corner-br: rgba(255, 255, 255, 0.08);
   --glass-bevel: rgba(255, 255, 255, 0.07);
   --glass-border-highlight: rgba(255, 255, 255, 0.90);
-}
-
-/* ─── Forced light (user toggle, wins over OS dark) ──────────────────────── */
-:root[data-theme="light"] {
-  --bg: #F0E0C8;
-  --bg-warm: #D9AA80;
-  --text: #1A1A2E;
-  --text-muted: rgba(26, 26, 46, 0.5);
-  --panel-bg: rgb(255, 255, 255, 0.1);
-  --panel-border: rgba(0, 0, 0, 0.08);
-  --surface: rgba(0, 0, 0, 0.03);
-  --surface-border: rgba(0, 0, 0, 0.08);
-  --slab-shadow: 0 10px 34px rgba(45, 34, 22, 0.13), 0 2px 8px rgba(45, 34, 22, 0.07);
-  --edge-sheen: rgba(255, 255, 255, 0.65);
-  --on-accent: #1A1A2E;
-  --scrim: rgba(40, 30, 20, 0.25);
-  --auth-overlay: rgba(240, 224, 200, 0.82);
-  --canvas-overlay: rgba(240, 224, 200, 0.82);
-  --ring-stroke: rgba(90, 60, 20, 0.40);
-  --glass-tint: rgba(240, 224, 200, 0.45);
-  --glass-inset-shadow: rgba(0, 0, 0, 0.12);
-  --glass-corner-tl: rgba(255, 255, 255, 0.22);
-  --glass-corner-br: rgba(255, 255, 255, 0.13);
-  --glass-bevel: rgba(90, 60, 25, 0.12);
-  --glass-border-highlight: rgba(255, 255, 255, 0.95);
 }
 
 body {
@@ -136,77 +80,6 @@ body {
     color 0.3s cubic-bezier(0, 0, 0.2, 1);
 }
 
-/* Paper fold lines — soft directional shadows mimicking page creases */
-body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  background-image:
-    linear-gradient(
-      15deg,
-      transparent 25%,
-      rgba(100, 65, 20, 0.04) 38%,
-      rgba(255, 250, 240, 0.055) 41%,
-      transparent 54%
-    ),
-    linear-gradient(
-      97deg,
-      transparent 50%,
-      rgba(100, 65, 20, 0.035) 63%,
-      rgba(255, 250, 240, 0.05) 66%,
-      transparent 78%
-    ),
-    linear-gradient(
-      202deg,
-      transparent 15%,
-      rgba(100, 65, 20, 0.03) 28%,
-      rgba(255, 250, 240, 0.045) 31%,
-      transparent 44%
-    );
-}
-
-@media (prefers-color-scheme: dark) {
-  body::before {
-    background-image:
-      linear-gradient(
-        15deg,
-        transparent 25%,
-        rgba(0, 0, 0, 0.07) 38%,
-        rgba(255, 255, 255, 0.04) 41%,
-        transparent 54%
-      ),
-      linear-gradient(
-        97deg,
-        transparent 50%,
-        rgba(0, 0, 0, 0.07) 63%,
-        rgba(255, 255, 255, 0.04) 66%,
-        transparent 78%
-      ),
-      linear-gradient(
-        202deg,
-        transparent 15%,
-        rgba(0, 0, 0, 0.07) 28%,
-        rgba(255, 255, 255, 0.04) 31%,
-        transparent 44%
-      );
-  }
-}
-
-/* ─── Forced theme body::before overrides ────────────────────────────────── */
-[data-theme="dark"] body::before {
-  background-image:
-    linear-gradient(15deg, transparent 25%, rgba(0,0,0,0.07) 38%, rgba(255,255,255,0.04) 41%, transparent 54%),
-    linear-gradient(97deg, transparent 50%, rgba(0,0,0,0.07) 63%, rgba(255,255,255,0.04) 66%, transparent 78%),
-    linear-gradient(202deg, transparent 15%, rgba(0,0,0,0.07) 28%, rgba(255,255,255,0.04) 31%, transparent 44%);
-}
-[data-theme="light"] body::before {
-  background-image:
-    linear-gradient(15deg, transparent 25%, rgba(100,65,20,0.04) 38%, rgba(255,250,240,0.055) 41%, transparent 54%),
-    linear-gradient(97deg, transparent 50%, rgba(100,65,20,0.035) 63%, rgba(255,250,240,0.05) 66%, transparent 78%),
-    linear-gradient(202deg, transparent 15%, rgba(100,65,20,0.03) 28%, rgba(255,250,240,0.045) 31%, transparent 44%);
-}
 
 /* ─── Gradient border — conic-gradient ring masked to perimeter only ───────── */
 .gradient-border {
@@ -294,4 +167,93 @@ body::before {
 @keyframes elan-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
+}
+
+/* ─── Annotation editor (Milkdown) ──────────────────────────────────────── */
+.annotation-editor .milkdown { outline: none; }
+
+.annotation-editor .editor {
+  outline: none;
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 1.75;
+  color: var(--text);
+  caret-color: var(--text);
+  min-height: 60px;
+}
+
+.annotation-editor .editor p { margin: 0 0 0.8em; }
+.annotation-editor .editor p:last-child { margin-bottom: 0; }
+.annotation-editor .editor h1 { font-size: 19px; font-weight: 600; margin: 1.4em 0 0.5em; color: var(--text); }
+.annotation-editor .editor h2 { font-size: 17px; font-weight: 600; margin: 1.2em 0 0.4em; color: var(--text); }
+.annotation-editor .editor h3 { font-size: 15px; font-weight: 600; margin: 1em 0 0.3em; color: var(--text); }
+.annotation-editor .editor strong { font-weight: 600; }
+.annotation-editor .editor em { font-style: italic; }
+.annotation-editor .editor code {
+  background: var(--surface);
+  border: 1px solid var(--surface-border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 0.9em;
+  font-family: monospace;
+}
+.annotation-editor .editor pre {
+  background: var(--surface);
+  border: 1px solid var(--surface-border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  overflow-x: auto;
+  margin: 0.5em 0;
+}
+.annotation-editor .editor pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 13px;
+}
+
+.annotation-editor ul,
+.annotation-editor ol {
+  padding-left: 1.5em;
+  margin-left: 0;
+}
+
+.annotation-editor li[data-list-type="bullet"] {
+  list-style: disc;
+}
+
+.annotation-editor li[data-list-type="ordered"] {
+  list-style: decimal;
+}
+
+.annotation-editor li[data-item-type="task"] {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 0;
+}
+
+.annotation-editor li[data-item-type="task"]::before {
+  content: '';
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid var(--text-muted);
+  border-radius: 3px;
+  transition: background 200ms ease-out, border-color 200ms ease-out;
+  box-sizing: border-box;
+}
+
+.annotation-editor li[data-item-type="task"][data-checked="true"]::before {
+  content: '';
+  background: var(--node-factual);
+  border-color: var(--node-factual);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2 6l3 3 5-5' stroke='white' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 10px;
 }

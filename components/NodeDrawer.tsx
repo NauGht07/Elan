@@ -6,6 +6,7 @@ import { useStore } from '@/lib/store'
 import { createBrowserClient } from '@/lib/supabase-browser'
 import { typeHex, typeLabel, TypeBadge, CustomLink } from '@/lib/nodeUtils'
 import ChatPanel from '@/components/ChatPanel'
+import NodeAnnotation from '@/components/NodeAnnotation'
 import type { ElanNode, Suggestion, NodeType, NodeChat, Interpretation, AncestorContext } from '@/types'
 
 // ─── NodeDrawer ───────────────────────────────────────────────────────────────
@@ -724,22 +725,8 @@ export default function NodeDrawer() {
               {/* Divider */}
               <div style={{ height: 1, background: 'var(--panel-border)', flexShrink: 0 }} />
 
-              {/* Annotations */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <h3 style={{
-                  margin: 0,
-                  fontSize: 12,
-                  fontWeight: 600,
-                  letterSpacing: '0.08em',
-                  textTransform: 'uppercase',
-                  color: 'var(--text-muted)',
-                }}>
-                  Annotations
-                </h3>
-                <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted)', fontStyle: 'italic' }}>
-                  Coming soon
-                </p>
-              </div>
+              {/* Annotation editor */}
+              <NodeAnnotation key={node.id} nodeId={node.id} />
             </>
           )}
         </div>

@@ -24,14 +24,13 @@ export default function LeftPanel() {
   const [theme, setTheme] = useState<'light' | 'dark' | null>(null)
 
   useEffect(() => {
-    const saved = document.documentElement.dataset.theme as 'light' | 'dark' | undefined
-    if (saved === 'light' || saved === 'dark') { setTheme(saved); return }
-    const mq = window.matchMedia('(prefers-color-scheme: dark)')
-    setTheme(mq.matches ? 'dark' : 'light')
+    setTheme(document.documentElement.classList.contains('dark') ? 'dark' : 'light')
   }, [])
 
   useEffect(() => {
-    if (theme) document.documentElement.dataset.theme = theme
+    if (!theme) return
+    document.documentElement.classList.toggle('dark', theme === 'dark')
+    document.cookie = `elan-theme=${theme}; max-age=31536000; path=/`
   }, [theme])
 
   function toggleTheme() { setTheme(t => t === 'light' ? 'dark' : 'light') }

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { DM_Sans } from "next/font/google";
+import { cookies } from "next/headers";
 import "./globals.css";
 
 const dmSans = DM_Sans({
@@ -12,13 +13,15 @@ export const metadata: Metadata = {
   description: "AI-powered recursive learning tree",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const theme = (await cookies()).get('elan-theme')?.value ?? 'light'
+
   return (
-    <html lang="en" className={`${dmSans.variable} h-full antialiased`}>
+    <html lang="en" className={`${dmSans.variable} h-full antialiased${theme === 'dark' ? ' dark' : ''}`}>
       <body className="min-h-full flex flex-col">{children}</body>
     </html>
   );

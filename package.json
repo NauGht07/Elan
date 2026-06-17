@@ -10,6 +10,10 @@
     "test:pipeline": "node --env-file=.env.local --import tsx scripts/test-pipeline.ts"
   },
   "dependencies": {
+    "@milkdown/core": "^7.21.2",
+    "@milkdown/plugin-listener": "^7.21.2",
+    "@milkdown/preset-commonmark": "^7.21.2",
+    "@milkdown/react": "^7.21.2",
     "@supabase/ssr": "^0.12.0",
     "@supabase/supabase-js": "^2.108.1",
     "d3-force": "^3.0.0",
