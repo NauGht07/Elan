@@ -18,6 +18,7 @@ interface AppState {
   setTrees: (trees: Tree[]) => void
   prependTree: (tree: Tree) => void
   removeTree: (id: string) => void
+  renameTree: (id: string, title: string) => void
   graphVersion: number
   bumpGraphVersion: () => void
 }
@@ -41,6 +42,9 @@ export const useStore = create<AppState>()((set) => ({
   removeTree: (id) => set((s) => ({
     trees: s.trees.filter((t) => t.id !== id),
     selectedTreeId: s.selectedTreeId === id ? null : s.selectedTreeId,
+  })),
+  renameTree: (id, title) => set((s) => ({
+    trees: s.trees.map((t) => t.id === id ? { ...t, title } : t),
   })),
   graphVersion: 0,
   bumpGraphVersion: () => set((s) => ({ graphVersion: s.graphVersion + 1 })),

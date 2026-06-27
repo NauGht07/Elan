@@ -7,6 +7,7 @@ import { commonmark } from '@milkdown/preset-commonmark'
 import { gfm } from '@milkdown/preset-gfm'
 import { listener, listenerCtx } from '@milkdown/plugin-listener'
 import { createBrowserClient } from '@/lib/supabase-browser'
+import { useStore } from '@/lib/store'
 import type { Annotation } from '@/types'
 
 interface EditorProps {
@@ -80,6 +81,7 @@ export default function NodeAnnotation({ nodeId }: Props) {
   const [saveError, setSaveError] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const annotationIdRef = useRef<string | null>(null)
+  const bumpGraphVersion = useStore((s) => s.bumpGraphVersion)
 
   useEffect(() => {
     let cancelled = false
@@ -115,7 +117,21 @@ export default function NodeAnnotation({ nodeId }: Props) {
     debounceRef.current = setTimeout(async () => {
       const supabase = createBrowserClient()
       const currentId = annotationIdRef.current
+      const trimmed = text.trim()
       try {
+        if (trimmed.length === 0) {
+          // Empty/whitespace — delete any existing row, never create one
+          if (currentId) {
+            const { error } = await supabase
+              .from('annotations')
+              .delete()
+              .eq('id', currentId)
+            if (error) throw error
+            annotationIdRef.current = null
+            bumpGraphVersion() // row removed — refresh the badge live
+          }
+          return
+        }
         if (currentId) {
           const { error } = await supabase
             .from('annotations')
@@ -130,12 +146,13 @@ export default function NodeAnnotation({ nodeId }: Props) {
             .single()
           if (error) throw error
           annotationIdRef.current = (data as { id: string }).id
+          bumpGraphVersion() // row created — refresh the badge live
         }
       } catch {
         setSaveError(true)
       }
     }, 1000)
-  }, [nodeId])
+  }, [nodeId, bumpGraphVersion])
 
   if (loading) return null
 

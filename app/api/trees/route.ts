@@ -36,6 +36,45 @@ export async function POST(request: Request) {
   return Response.json({ tree });
 }
 
+export async function PATCH(request: Request) {
+  let body: { tree_id: string; title: string };
+
+  try {
+    body = await request.json();
+  } catch {
+    return Response.json({ error: 'Invalid JSON' }, { status: 400 });
+  }
+
+  const { tree_id, title } = body;
+
+  if (!tree_id || typeof tree_id !== 'string') {
+    return Response.json({ error: 'Missing required field: tree_id' }, { status: 400 });
+  }
+  if (!title || typeof title !== 'string' || !title.trim()) {
+    return Response.json({ error: 'Missing required field: title' }, { status: 400 });
+  }
+
+  const supabase = await createServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) {
+    return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const { error } = await supabase
+    .from('trees')
+    .update({ title: title.trim() })
+    .eq('id', tree_id)
+    .eq('user_id', user.id);
+
+  if (error) {
+    console.error('Tree rename error:', error);
+    return Response.json({ error: 'Failed to rename tree' }, { status: 500 });
+  }
+
+  return Response.json({ ok: true });
+}
+
 export async function DELETE(request: Request) {
   let body: { tree_id: string };
 

@@ -1,7 +1,7 @@
 import type { NodeType } from '@/types'
 
-export const FACTUAL_HEX = '#7B9EFF'
-export const PRACTICAL_HEX = '#C47070'
+export const FACTUAL_HEX = '#009DDC'
+export const PRACTICAL_HEX = '#F5821F'
 
 export function typeHex(type: NodeType): string {
   return type === 'factual' ? FACTUAL_HEX : PRACTICAL_HEX
@@ -33,7 +33,10 @@ export function TypeBadge({ type }: { type: NodeType }) {
 }
 
 export function CustomLink({ href, children }: { href?: string; children?: React.ReactNode }) {
-  return (
+  const text = typeof children === 'string' ? children : null
+  const isCitation = text !== null && /^\[\d+\]$/.test(text)
+
+  const anchor = (
     <a
       href={href}
       target="_blank"
@@ -41,13 +44,16 @@ export function CustomLink({ href, children }: { href?: string; children?: React
       style={{
         color: 'var(--node-factual)',
         textDecoration: 'none',
-        borderBottom: '1px solid rgba(123,158,255,0.35)',
+        fontWeight: isCitation ? 600 : undefined,
+        borderBottom: isCitation ? 'none' : '1px solid rgba(76,217,100,0.35)',
         transition: 'border-color 0.15s ease-out',
       }}
-      onMouseEnter={(e) => (e.currentTarget.style.borderBottomColor = 'var(--node-factual)')}
-      onMouseLeave={(e) => (e.currentTarget.style.borderBottomColor = 'rgba(123,158,255,0.35)')}
+      onMouseEnter={(e) => { if (!isCitation) e.currentTarget.style.borderBottomColor = 'var(--node-factual)' }}
+      onMouseLeave={(e) => { if (!isCitation) e.currentTarget.style.borderBottomColor = 'rgba(76,217,100,0.35)' }}
     >
-      {children}
+      {isCitation ? text.slice(1, -1) : children}
     </a>
   )
+
+  return isCitation ? <sup>{anchor}</sup> : anchor
 }

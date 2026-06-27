@@ -167,7 +167,7 @@ export default function NewTreeModal({ isOpen, onClose, onComplete }: Props) {
                   }}
                   onMouseEnter={(e) => {
                     e.currentTarget.style.borderColor = 'var(--node-factual)'
-                    e.currentTarget.style.background = 'rgba(123,158,255,0.08)'
+                    e.currentTarget.style.background = 'rgba(76,217,100,0.08)'
                   }}
                   onMouseLeave={(e) => {
                     e.currentTarget.style.borderColor = 'var(--panel-border)'

@@ -5,6 +5,7 @@ import ReactFlow, {
   useNodesState,
   useEdgesState,
   useReactFlow,
+  useStore as useRfStore,
   Handle,
   Position,
   type Node,
@@ -41,7 +42,12 @@ if (typeof document !== 'undefined') {
     @keyframes ink-spread {
       0%   { transform: scale(0.55); opacity: 0.5; }
       100% { transform: scale(1.95); opacity: 0; }
-    }`
+    }
+    @keyframes edge-fade {
+      from { opacity: 0; }
+      to   { opacity: 1; }
+    }
+    `
     document.head.appendChild(el)
   }
 }
@@ -49,13 +55,21 @@ if (typeof document !== 'undefined') {
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const NODE_RADIUS = 28
-const FACTUAL_HEX = '#7B9EFF'
-const PRACTICAL_HEX = '#C47070'
+const FACTUAL_HEX = '#009DDC'
+const PRACTICAL_HEX = '#F5821F'
 const DRIFT = 0.15
 const TEXTURE_SIZE = 2400
 
 function typeHex(type: NodeType) {
   return type === 'factual' ? FACTUAL_HEX : PRACTICAL_HEX
+}
+
+// Mix a hex color toward white — used for the sticker's "paper backing" fold
+function lighten(hex: string, amt: number): string {
+  const n = parseInt(hex.slice(1), 16)
+  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255
+  const mix = (c: number) => Math.round(c + (255 - c) * amt)
+  return `rgb(${mix(r)}, ${mix(g)}, ${mix(b)})`
 }
 
 function spawnPosition(
@@ -85,6 +99,11 @@ interface OrbData {
   depth: number
   isActive: boolean
   isNew: boolean
+  bloomDelay: number
+  topic: string
+  hasAnnotations: boolean
+  hasChat: boolean
+  emoji: string[]
 }
 
 const handleStyle: React.CSSProperties = {
@@ -96,23 +115,126 @@ const handleStyle: React.CSSProperties = {
   transform: 'translate(-50%, -50%)',
 }
 
-function OrbNode({ data }: NodeProps<OrbData>) {
+// ─── Indicator badges ──────────────────────────────────────────────────────────
+
+const BADGE_SIZE = 15
+
+// Small sticker-style badge that floats on the document's outer edge. x/y are the
+// badge centre in container coordinates; pointer events pass through to the node.
+function Badge({ x, y, children }: { x: number; y: number; children: React.ReactNode }) {
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        left: x - BADGE_SIZE / 2,
+        top: y - BADGE_SIZE / 2,
+        width: BADGE_SIZE,
+        height: BADGE_SIZE,
+        borderRadius: '50%',
+        background: '#F1E8D6',
+        border: '1px solid rgba(40,30,22,0.15)',
+        boxShadow: '0 1px 3px rgba(40,30,22,0.28)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: '#6B5E4E',
+        pointerEvents: 'none',
+      }}
+    >
+      {children}
+    </div>
+  )
+}
+
+const iconProps = {
+  width: 9,
+  height: 9,
+  viewBox: '0 0 24 24',
+  fill: 'none',
+  stroke: 'currentColor',
+  strokeWidth: 2.4,
+  strokeLinecap: 'round' as const,
+  strokeLinejoin: 'round' as const,
+}
+
+const PencilIcon = () => (
+  <svg {...iconProps}>
+    <path d="M12 20h9" />
+    <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+  </svg>
+)
+
+const ChatIcon = () => (
+  <svg {...iconProps}>
+    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+  </svg>
+)
+
+const PaperclipIcon = () => (
+  <svg {...iconProps}>
+    <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+  </svg>
+)
+
+// Deterministic [0,1) pseudo-random from a string seed — keeps emoji placement
+// stable across re-renders (same node id + index → same position)
+function seededUnit(seed: string): number {
+  let h = 2166136261
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return ((h >>> 0) % 100000) / 100000
+}
+
+// Per-index base anchors (fractions of the document half-extents, from centre),
+// spread across the face and biased away from the top-right dog-ear.
+const EMOJI_ANCHORS = [
+  { fx: -0.32, fy: -0.12 },
+  { fx: 0.28, fy: 0.16 },
+  { fx: -0.02, fy: 0.42 },
+]
+
+function OrbNode({ id, data }: NodeProps<OrbData>) {
   const [blooming, setBlooming] = useState(false)
+  const zoom = useRfStore(s => s.transform[2])
 
   useEffect(() => {
     if (!data.isNew) return
-    setBlooming(true)
-    const t = setTimeout(() => setBlooming(false), 600)
-    return () => clearTimeout(t)
-  }, [data.isNew])
+    // Delay the ink-spread ring so it fires when this node actually blooms in
+    // (depth-staggered on initial load), not at t=0.
+    let endT: ReturnType<typeof setTimeout>
+    const startT = setTimeout(() => {
+      setBlooming(true)
+      endT = setTimeout(() => setBlooming(false), 600)
+    }, data.bloomDelay)
+    return () => {
+      clearTimeout(startT)
+      clearTimeout(endT)
+    }
+  }, [data.isNew, data.bloomDelay])
 
   const hex = typeHex(data.nodeType)
   const isRoot = data.depth === 0
   const lifted = data.isActive || blooming
 
+  const labelVariant = zoom < 0.6 ? 'hidden' : zoom > 1.2 ? 'full' : 'small'
+  const labelText =
+    labelVariant === 'small' && data.topic.length > 20
+      ? data.topic.slice(0, 20) + '…'
+      : data.topic
+
   const filter = lifted
-    ? 'drop-shadow(0 8px 18px rgba(40,30,22,0.38)) drop-shadow(0 2px 5px rgba(40,30,22,0.22))'
-    : 'drop-shadow(0 2px 6px rgba(40,30,22,0.24))'
+    ? 'drop-shadow(0 10px 22px rgba(40,30,22,0.26)) drop-shadow(0 3px 8px rgba(40,30,22,0.14))'
+    : 'drop-shadow(0 4px 12px rgba(40,30,22,0.18))'
+
+  // Badge anchors — derived from the visible document size so they track the icon
+  // edge at both the root (×4) and normal (×3) scale. Scattered for an organic feel.
+  const svgSize = isRoot ? NODE_RADIUS * 4 : NODE_RADIUS * 3
+  const c = NODE_RADIUS // container centre (container box is NODE_RADIUS * 2)
+  const halfW = svgSize * 0.26 // document rect half-width in container px
+  const halfH = svgSize * 0.36 // document rect half-height in container px
+  const hasAttachment = false // attachments not built yet — position reserved
 
   return (
     <div
@@ -120,7 +242,7 @@ function OrbNode({ data }: NodeProps<OrbData>) {
         width: NODE_RADIUS * 2,
         height: NODE_RADIUS * 2,
         position: 'relative',
-        animation: data.isNew ? 'orb-bloom 600ms cubic-bezier(0,0,0.2,1) forwards' : undefined,
+        animation: data.isNew ? `orb-bloom 600ms cubic-bezier(0,0,0.2,1) ${data.bloomDelay}ms both` : undefined,
         filter,
         transform: data.isActive ? 'scale(1.18)' : 'scale(1)',
         transition: 'filter 400ms cubic-bezier(0,0,0.2,1), transform 400ms cubic-bezier(0,0,0.2,1)',
@@ -147,40 +269,76 @@ function OrbNode({ data }: NodeProps<OrbData>) {
             style={{ transformOrigin: '50px 50px', animation: 'ink-spread 600ms cubic-bezier(0,0,0.2,1) forwards' }}
           />
         )}
-        {/* Solid fill */}
-        <path d="M30 22 L60 22 L72 34 L72 80 L30 80 Z" fill={hex} />
-        {/* Dog-ear fold shadow */}
-        <path d="M60 22 L60 34 L72 34 Z" fill="rgba(0,0,0,0.12)" />
-        <g filter="url(#ink-rough)">
-          {/* Outline */}
-          <path
-            d="M30 22 L60 22 L72 34 L72 80 L30 80 Z"
-            fill="none" stroke="rgba(0,0,0,0.18)"
-            strokeWidth={data.isActive || isRoot ? 3 : 2.2}
-            strokeLinejoin="round" strokeLinecap="round"
-          />
-          {/* Dog-ear crease */}
-          <path
-            d="M60 22 L60 34 L72 34"
-            fill="none" stroke="rgba(0,0,0,0.18)" strokeWidth="2"
-            strokeLinejoin="round" strokeLinecap="round"
-          />
-          {/* Text lines — white on solid color background */}
-          {isRoot ? (
-            <>
-              <line x1="38" y1="50" x2="64" y2="50" stroke="white" strokeWidth="3.5" strokeOpacity="0.75" strokeLinecap="round" />
-              <line x1="38" y1="60" x2="60" y2="60" stroke="white" strokeWidth="2" strokeOpacity="0.45" strokeLinecap="round" />
-              <line x1="38" y1="68" x2="56" y2="68" stroke="white" strokeWidth="2" strokeOpacity="0.4" strokeLinecap="round" />
-            </>
-          ) : (
-            <>
-              <line x1="38" y1="52" x2="64" y2="52" stroke="white" strokeWidth="2" strokeOpacity="0.55" strokeLinecap="round" />
-              <line x1="38" y1="61" x2="62" y2="61" stroke="white" strokeWidth="2" strokeOpacity="0.45" strokeLinecap="round" />
-              <line x1="38" y1="70" x2="54" y2="70" stroke="white" strokeWidth="2" strokeOpacity="0.4" strokeLinecap="round" />
-            </>
-          )}
+        {/* Document body — rounded-corner page with the top-right corner folded away, no outline */}
+        <path d="M30 14 L58 14 L76 32 L76 80 A6 6 0 0 1 70 86 L30 86 A6 6 0 0 1 24 80 L24 20 A6 6 0 0 1 30 14 Z" fill={hex} />
+        {/* Dog-ear — folded top-right corner showing lighter paper backing, rounded inner vertex, with localized fold shadow */}
+        <g filter="url(#fold-shadow)">
+          <path d="M58 14 L76 32 L64 32 Q58 32 58 26 L58 14 Z" fill={lighten(hex, 0.45)} />
+        </g>
+        {/* Content lines — suggest text on the page, a lighter shade of the node color */}
+        <g stroke={lighten(hex, 0.4)} strokeWidth="3" strokeLinecap="round">
+          <line x1="33" y1="44" x2="67" y2="44" />
+          <line x1="33" y1="54" x2="67" y2="54" />
+          <line x1="33" y1="64" x2="67" y2="64" />
+          <line x1="33" y1="74" x2="55" y2="74" />
         </g>
       </svg>
+      {/* Emoji stickers — scattered on the document face, seeded by node id so stable */}
+      {data.emoji.map((emoji, i) => {
+        const anchor = EMOJI_ANCHORS[i] ?? EMOJI_ANCHORS[EMOJI_ANCHORS.length - 1]
+        const jx = (seededUnit(`${id}:x${i}`) - 0.5) * 0.28
+        const jy = (seededUnit(`${id}:y${i}`) - 0.5) * 0.28
+        return (
+          <span
+            key={i}
+            style={{
+              position: 'absolute',
+              left: c + (anchor.fx + jx) * halfW,
+              top: c + (anchor.fy + jy) * halfH,
+              transform: 'translate(-50%, -50%)',
+              fontSize: 13,
+              lineHeight: 1,
+              pointerEvents: 'none',
+              userSelect: 'none',
+            }}
+          >
+            {emoji}
+          </span>
+        )
+      })}
+      {/* Indicator badges — float on the document's outer edge, only when relevant */}
+      {data.hasAnnotations && (
+        <Badge x={c - halfW} y={c + halfH * 0.08}><PencilIcon /></Badge>
+      )}
+      {data.hasChat && (
+        <Badge x={c - halfW * 0.5} y={c + halfH}><ChatIcon /></Badge>
+      )}
+      {hasAttachment && (
+        <Badge x={c + halfW * 0.62} y={c + halfH * 0.95}><PaperclipIcon /></Badge>
+      )}
+      {labelVariant !== 'hidden' && (
+        <div
+          style={{
+            position: 'absolute',
+            top: '100%',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            marginTop: isRoot ? 28 : 14,
+            fontSize: labelVariant === 'full' ? 11 : 9,
+            lineHeight: 1.4,
+            color: 'var(--text-muted)',
+            whiteSpace: 'nowrap',
+            maxWidth: isRoot ? NODE_RADIUS * 4 : NODE_RADIUS * 3,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            pointerEvents: 'none',
+            userSelect: 'none',
+            textAlign: 'center',
+          }}
+        >
+          {labelText}
+        </div>
+      )}
       <Handle type="source" position={Position.Right} style={handleStyle} />
     </div>
   )
@@ -313,10 +471,35 @@ export default function Graph() {
       .select('*')
       .eq('tree_id', selectedTreeId)
       .order('depth', { ascending: true })
-      .then(({ data }) => {
+      .then(async ({ data }) => {
         if (cancelled || !data || data.length === 0) return
 
         const elanNodes = data as ElanNode[]
+
+        // Badge data — fetch which nodes have annotations / chat messages once per
+        // tree load (annotations & node_chats carry no tree_id, so filter by node_id)
+        const nodeIds = elanNodes.map((n) => n.id)
+        const [annRes, chatRes] = await Promise.all([
+          supabase.from('annotations').select('node_id, text, anchor_type').in('node_id', nodeIds).order('created_at'),
+          supabase.from('node_chats').select('node_id').in('node_id', nodeIds),
+        ])
+        if (cancelled) return
+        // Pencil badge — note annotations only (exclude emoji rows), non-empty text
+        const annotatedIds = new Set(
+          (annRes.data ?? [])
+            .filter((r) => r.anchor_type !== 'emoji' && (r.text ?? '').trim().length > 0)
+            .map((r) => r.node_id)
+        )
+        // Emoji stickers — grouped per node, capped at 3
+        const emojiByNode = new Map<string, string[]>()
+        for (const r of annRes.data ?? []) {
+          if (r.anchor_type !== 'emoji' || !r.text) continue
+          const arr = emojiByNode.get(r.node_id) ?? []
+          if (arr.length < 3) arr.push(r.text)
+          emojiByNode.set(r.node_id, arr)
+        }
+        const chatIds = new Set((chatRes.data ?? []).map((r) => r.node_id))
+
         const cx = (containerRef.current?.offsetWidth ?? 800) / 2
         const cy = (containerRef.current?.offsetHeight ?? 600) / 2
 
@@ -348,6 +531,11 @@ export default function Graph() {
           elanNodes.filter((n) => !posSnapshotRef.current.has(n.id)).map((n) => n.id)
         )
 
+        // Fresh tree load (vs. an incremental single-node add via graphVersion). On a
+        // fresh load every node blooms; we stagger them by depth so the tree grows
+        // outward from the root rather than exploding from a single point.
+        const isInitialLoad = prevTreeIdRef.current !== selectedTreeId
+
         // Initial RF nodes — existing at last position, new on its ring near parent angle
         const initRfNodes: Node<OrbData>[] = elanNodes.map((n) => {
           const snap = posSnapshotRef.current.get(n.id)
@@ -359,7 +547,7 @@ export default function Graph() {
             id: n.id,
             type: 'orb',
             position: { x, y },
-            data: { nodeType: n.type, depth: n.depth, isActive: false, isNew: newNodeIds.has(n.id) },
+            data: { nodeType: n.type, depth: n.depth, isActive: false, isNew: newNodeIds.has(n.id), bloomDelay: isInitialLoad ? n.depth * 300 : 0, topic: n.original_query, hasAnnotations: annotatedIds.has(n.id), hasChat: chatIds.has(n.id), emoji: emojiByNode.get(n.id) ?? [] },
           }
         })
 
@@ -380,6 +568,10 @@ export default function Graph() {
                 strokeWidth: 1.6,
                 strokeLinecap: 'round',
                 filter: 'url(#ink-rough)',
+                // Fade in alongside the target node (child at depth n.depth) on initial load
+                animation: isInitialLoad
+                  ? `edge-fade 400ms cubic-bezier(0,0,0.2,1) ${n.depth * 300}ms both`
+                  : undefined,
               },
             }
           })
@@ -395,11 +587,18 @@ export default function Graph() {
         }
 
         if (newNodeIds.size > 0) {
+          // Keep isNew alive until the last (deepest) staggered bloom has finished,
+          // otherwise a deep node's animation is removed before it even starts.
+          const maxNewDepth = elanNodes.reduce(
+            (max, n) => (newNodeIds.has(n.id) ? Math.max(max, n.depth) : max),
+            0,
+          )
+          const resetAfter = (isInitialLoad ? maxNewDepth * 300 : 0) + 600
           setTimeout(() => {
             setNodes((nds) =>
               nds.map((n) => newNodeIds.has(n.id) ? { ...n, data: { ...n.data, isNew: false } } : n)
             )
-          }, 600)
+          }, resetAfter)
         }
 
         // d3-force simulation
@@ -487,6 +686,9 @@ export default function Graph() {
           <filter id="ink-rough" x="-20%" y="-20%" width="140%" height="140%">
             <feTurbulence type="fractalNoise" baseFrequency="0.045" numOctaves="2" seed="7" result="n" />
             <feDisplacementMap in="SourceGraphic" in2="n" scale="2.2" xChannelSelector="R" yChannelSelector="G" />
+          </filter>
+          <filter id="fold-shadow" x="-75%" y="-75%" width="250%" height="250%">
+            <feDropShadow dx="-2.5" dy="4.5" stdDeviation="3.8" floodColor="rgba(0,0,0,0.45)" />
           </filter>
         </defs>
       </svg>

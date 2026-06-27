@@ -32,7 +32,7 @@ export default function SignOutButton() {
       }}
       onMouseEnter={(e) => {
         e.currentTarget.style.color = 'var(--node-practical)'
-        e.currentTarget.style.borderColor = 'rgba(244,185,122,0.4)'
+        e.currentTarget.style.borderColor = 'rgba(255,45,85,0.4)'
       }}
       onMouseLeave={(e) => {
         e.currentTarget.style.color = 'var(--text-muted)'

@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createBrowserClient } from '@/lib/supabase-browser'
 
-const FACTUAL = '#7B9EFF'
+const FACTUAL = '#009DDC'
 
 export default function AuthPage() {
   const router = useRouter()
@@ -51,7 +51,7 @@ export default function AuthPage() {
     width: '100%',
     boxSizing: 'border-box',
     background: 'rgba(255, 255, 255, 0.1)',
-    border: `1px solid ${focusedField === field ? 'rgba(123,158,255,0.55)' : 'var(--panel-border)'}`,
+    border: `1px solid ${focusedField === field ? 'rgba(76,217,100,0.55)' : 'var(--panel-border)'}`,
     borderRadius: 11,
     color: 'var(--text)',
     fontSize: 14,
@@ -62,7 +62,7 @@ export default function AuthPage() {
       ? [
           'inset 0 2px 5px rgba(42,38,32,0.12)',
           'inset 0 2px 0 rgba(255,255,255,0.22)',
-          '0 0 0 3px rgba(123,158,255,0.18)',
+          '0 0 0 3px rgba(76,217,100,0.18)',
         ].join(', ')
       : [
           'inset 0 2px 5px rgba(42,38,32,0.16)',

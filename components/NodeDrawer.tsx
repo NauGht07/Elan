@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
+import EmojiPicker, { EmojiStyle, Theme } from 'emoji-picker-react'
 import { useStore } from '@/lib/store'
 import { createBrowserClient } from '@/lib/supabase-browser'
 import { typeHex, typeLabel, TypeBadge, CustomLink } from '@/lib/nodeUtils'
@@ -33,6 +34,10 @@ export default function NodeDrawer() {
   const [customInput, setCustomInput] = useState('')
   const [customStatus, setCustomStatus] = useState<'idle' | 'loading' | 'disambiguating' | 'error'>('idle')
   const [interpretations, setInterpretations] = useState<Interpretation[]>([])
+  const [emojiRows, setEmojiRows] = useState<{ id: string; text: string }[]>([])
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false)
+  const [pickerPos, setPickerPos] = useState<{ top: number; left: number } | null>(null)
+  const emojiBtnRef = useRef<HTMLButtonElement>(null)
 
   function addChatMessage(msg: Pick<NodeChat, 'role' | 'message'>) {
     setChatMessages((prev) => [...prev, {
@@ -43,12 +48,47 @@ export default function NodeDrawer() {
     }])
   }
 
+  async function addEmoji(emoji: string) {
+    if (!activeNodeId || emojiRows.length >= 3) return // enforce max 3 on insert
+    setShowEmojiPicker(false)
+    const supabase = createBrowserClient()
+    const { data, error } = await supabase
+      .from('annotations')
+      .insert({ node_id: activeNodeId, anchor_type: 'emoji', anchor_start: null, anchor_end: null, text: emoji })
+      .select('id')
+      .single()
+    if (error || !data) return
+    setEmojiRows((prev) => [...prev, { id: (data as { id: string }).id, text: emoji }])
+    bumpGraphVersion()
+  }
+
+  async function removeEmoji(rowId: string) {
+    const supabase = createBrowserClient()
+    const { error } = await supabase.from('annotations').delete().eq('id', rowId)
+    if (error) return
+    setEmojiRows((prev) => prev.filter((r) => r.id !== rowId))
+    bumpGraphVersion()
+  }
+
+  function toggleEmojiPicker() {
+    if (showEmojiPicker) { setShowEmojiPicker(false); return }
+    const rect = emojiBtnRef.current?.getBoundingClientRect()
+    if (rect) {
+      const PICKER_W = 340
+      const left = Math.min(Math.max(8, rect.right - PICKER_W), window.innerWidth - PICKER_W - 8)
+      setPickerPos({ top: rect.bottom + 8, left })
+    }
+    setShowEmojiPicker(true)
+  }
+
   useEffect(() => {
     if (!activeNodeId) {
       setNode(null)
       setSuggestions([])
       setChatMessages([])
       setAncestorChain([])
+      setEmojiRows([])
+      setShowEmojiPicker(false)
       return
     }
 
@@ -56,12 +96,14 @@ export default function NodeDrawer() {
     const supabase = createBrowserClient()
     setFetchStatus('loading')
     setChatMessages([])
+    setShowEmojiPicker(false)
 
     Promise.all([
       supabase.from('nodes').select('*').eq('id', activeNodeId).single(),
       supabase.from('suggestions').select('*').eq('node_id', activeNodeId),
       supabase.from('node_chats').select('*').eq('node_id', activeNodeId).order('created_at', { ascending: true }),
-    ]).then(async ([nodeRes, suggestionsRes, chatRes]) => {
+      supabase.from('annotations').select('id, text').eq('node_id', activeNodeId).eq('anchor_type', 'emoji').order('created_at', { ascending: true }),
+    ]).then(async ([nodeRes, suggestionsRes, chatRes, emojiRes]) => {
       if (cancelled) return
       if (nodeRes.error || !nodeRes.data) { setFetchStatus('error'); return }
       const fetchedNode = nodeRes.data as ElanNode
@@ -85,6 +127,7 @@ export default function NodeDrawer() {
       setAncestorChain(chain)
       setSuggestions((suggestionsRes.data ?? []) as Suggestion[])
       setChatMessages((chatRes.data ?? []) as NodeChat[])
+      setEmojiRows((emojiRes.data ?? []) as { id: string; text: string }[])
       setFetchStatus('idle')
     }).catch(() => {
       if (!cancelled) setFetchStatus('error')
@@ -308,8 +351,8 @@ export default function NodeDrawer() {
                   color: 'var(--node-practical)',
                   padding: '6px 12px',
                   borderRadius: 6,
-                  background: 'rgba(244,185,122,0.12)',
-                  border: '1px solid rgba(244,185,122,0.3)',
+                  background: 'rgba(255,45,85,0.10)',
+                  border: '1px solid rgba(255,45,85,0.28)',
                   opacity: isDeleting ? 0.6 : 1,
                   transition: 'opacity 0.15s ease-out',
                 }}
@@ -397,7 +440,7 @@ export default function NodeDrawer() {
                 onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--text)')}
                 onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
               >
-                {expanded ? '↙ Collapse' : '↗ Expand'}
+                {expanded ? '→ Collapse' : '← Expand'}
               </button>
               <button
                 onClick={() => { setDrawerOpen(false); setActiveNodeId(null) }}
@@ -449,16 +492,109 @@ export default function NodeDrawer() {
 
           {fetchStatus === 'idle' && node && (
             <>
-              {/* Title */}
-              <h2 style={{
-                margin: 0,
-                fontSize: 22,
-                fontWeight: 600,
-                color: 'var(--text)',
-                lineHeight: 1.3,
-              }}>
-                {node.original_query || typeLabel(node.type)}
-              </h2>
+              {/* Title + emoji stickers */}
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                <h2 style={{
+                  margin: 0,
+                  flex: 1,
+                  minWidth: 0,
+                  fontSize: 22,
+                  fontWeight: 600,
+                  color: 'var(--text)',
+                  lineHeight: 1.3,
+                }}>
+                  {node.original_query || typeLabel(node.type)}
+                </h2>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, paddingTop: 2 }}>
+                  {emojiRows.map((row) => (
+                    <span
+                      key={row.id}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 1,
+                        fontSize: 18,
+                        lineHeight: 1,
+                        padding: '2px 2px 2px 4px',
+                        borderRadius: 8,
+                        background: 'var(--panel-border)',
+                      }}
+                    >
+                      {row.text}
+                      <button
+                        onClick={() => removeEmoji(row.id)}
+                        title="Remove emoji"
+                        style={{
+                          all: 'unset',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          width: 14,
+                          height: 14,
+                          borderRadius: '50%',
+                          color: 'var(--text-muted)',
+                        }}
+                        onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--node-practical)')}
+                        onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
+                      >
+                        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round">
+                          <path d="M18 6 6 18M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </span>
+                  ))}
+
+                  <button
+                    ref={emojiBtnRef}
+                    onClick={toggleEmojiPicker}
+                    disabled={emojiRows.length >= 3}
+                    title={emojiRows.length >= 3 ? 'Up to 3 emoji' : 'Add emoji'}
+                    style={{
+                      all: 'unset',
+                      cursor: emojiRows.length >= 3 ? 'not-allowed' : 'pointer',
+                      padding: '5px 6px',
+                      borderRadius: 6,
+                      color: 'var(--text-muted)',
+                      opacity: emojiRows.length >= 3 ? 0.4 : 1,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      transition: 'color 0.15s ease-out',
+                    }}
+                    onMouseEnter={(e) => { if (emojiRows.length < 3) e.currentTarget.style.color = 'var(--text)' }}
+                    onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
+                  >
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="10" />
+                      <path d="M8 14s1.5 2 4 2 4-2 4-2" />
+                      <line x1="9" y1="9" x2="9.01" y2="9" />
+                      <line x1="15" y1="9" x2="15.01" y2="9" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
+              {showEmojiPicker && pickerPos && (
+                <>
+                  <div
+                    onClick={() => setShowEmojiPicker(false)}
+                    style={{ position: 'fixed', inset: 0, zIndex: 1000 }}
+                  />
+                  <div style={{ position: 'fixed', top: pickerPos.top, left: pickerPos.left, zIndex: 1001 }}>
+                    <EmojiPicker
+                      onEmojiClick={(d) => addEmoji(d.emoji)}
+                      theme={Theme.AUTO}
+                      emojiStyle={EmojiStyle.NATIVE}
+                      lazyLoadEmojis
+                      width={340}
+                      height={420}
+                      previewConfig={{ showPreview: false }}
+                    />
+                  </div>
+                </>
+              )}
 
               {/* Content */}
               <div style={{
@@ -566,6 +702,7 @@ export default function NodeDrawer() {
                           background: 'var(--panel-bg)',
                           border: `1px solid ${isGenerating ? hex : 'var(--panel-border)'}`,
                           opacity: isDisabled ? 0.45 : 1,
+                          animation: isGenerating ? `suggestion-pulse-${s.type} 2s linear infinite` : undefined,
                           transition: 'border-color 0.15s ease-out, opacity 0.15s ease-out, background 0.15s ease-out',
                           boxSizing: 'border-box',
                         }}
@@ -625,7 +762,7 @@ export default function NodeDrawer() {
                         }}
                         onMouseEnter={(e) => {
                           e.currentTarget.style.borderColor = 'var(--node-factual)'
-                          e.currentTarget.style.background = 'rgba(123,158,255,0.08)'
+                          e.currentTarget.style.background = 'rgba(76,217,100,0.08)'
                         }}
                         onMouseLeave={(e) => {
                           e.currentTarget.style.borderColor = 'var(--panel-border)'

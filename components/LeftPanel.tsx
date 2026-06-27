@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import Link from 'next/link'
 import { useStore } from '@/lib/store'
@@ -18,10 +18,16 @@ export default function LeftPanel() {
   const trees = useStore((s) => s.trees)
   const setTrees = useStore((s) => s.setTrees)
   const removeTree = useStore((s) => s.removeTree)
+  const renameTree = useStore((s) => s.renameTree)
   const [loading, setLoading] = useState(true)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null)
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null)
+  const [renameTargetId, setRenameTargetId] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState('')
   const [theme, setTheme] = useState<'light' | 'dark' | null>(null)
+  const menuRef = useRef<HTMLDivElement | null>(null)
+  const renameInputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
     setTheme(document.documentElement.classList.contains('dark') ? 'dark' : 'light')
@@ -56,6 +62,26 @@ export default function LeftPanel() {
     return () => window.removeEventListener('keydown', onKey)
   }, [deleteTarget])
 
+  // Close menu on outside click
+  useEffect(() => {
+    if (!menuOpenId) return
+    function onPointerDown(e: PointerEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpenId(null)
+      }
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [menuOpenId])
+
+  // Focus rename input when it appears
+  useEffect(() => {
+    if (renameTargetId && renameInputRef.current) {
+      renameInputRef.current.focus()
+      renameInputRef.current.select()
+    }
+  }, [renameTargetId])
+
   async function deleteTree(id: string) {
     try {
       const res = await fetch('/api/trees', {
@@ -67,6 +93,36 @@ export default function LeftPanel() {
     } finally {
       setDeleteTarget(null)
     }
+  }
+
+  function openMenu(e: React.MouseEvent, tree: Tree) {
+    e.stopPropagation()
+    setMenuOpenId((prev) => prev === tree.id ? null : tree.id)
+  }
+
+  function startRename(tree: Tree) {
+    setMenuOpenId(null)
+    setRenameTargetId(tree.id)
+    setRenameValue(tree.title)
+  }
+
+  function cancelRename() {
+    setRenameTargetId(null)
+    setRenameValue('')
+  }
+
+  async function commitRename(id: string) {
+    const trimmed = renameValue.trim()
+    if (!trimmed) { cancelRename(); return }
+    const tree = trees.find((t) => t.id === id)
+    if (!tree || trimmed === tree.title) { cancelRename(); return }
+    renameTree(id, trimmed)
+    cancelRename()
+    await fetch('/api/trees', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tree_id: id, title: trimmed }),
+    })
   }
 
   return (
@@ -156,6 +212,8 @@ export default function LeftPanel() {
         {trees.map((tree) => {
           const isSelected = tree.id === selectedTreeId
           const isHovered = tree.id === hoveredId
+          const isRenaming = tree.id === renameTargetId
+          const isMenuOpen = tree.id === menuOpenId
 
           return (
             <div
@@ -187,7 +245,7 @@ export default function LeftPanel() {
                 pointerEvents: 'none',
               }} />
 
-              {/* Selection button — takes all remaining space, contains the label */}
+              {/* Selection button */}
               <button
                 onClick={() => { setSelectedTreeId(tree.id); setActiveNodeId(null) }}
                 title={tree.title}
@@ -202,45 +260,139 @@ export default function LeftPanel() {
                   paddingLeft: 18,
                 }}
               >
-                <span style={{
-                  fontSize: 13,
-                  fontFamily: 'inherit',
-                  fontWeight: isSelected ? 500 : 400,
-                  color: isSelected ? 'var(--text)' : isHovered ? 'var(--text)' : 'var(--text-muted)',
-                  opacity: isCollapsed ? 0 : 1,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                  transition: 'opacity 250ms cubic-bezier(0,0,0.2,1), color 0.15s cubic-bezier(0,0,0.2,1)',
-                }}>
-                  {tree.title}
-                </span>
+                {isRenaming ? (
+                  <input
+                    ref={renameInputRef}
+                    value={renameValue}
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') { e.preventDefault(); commitRename(tree.id) }
+                      if (e.key === 'Escape') cancelRename()
+                    }}
+                    onBlur={() => commitRename(tree.id)}
+                    onClick={(e) => e.stopPropagation()}
+                    style={{
+                      all: 'unset',
+                      fontSize: 13,
+                      fontFamily: 'inherit',
+                      fontWeight: 500,
+                      color: 'var(--text)',
+                      width: '100%',
+                      minWidth: 0,
+                      borderBottom: '1px solid var(--node-factual)',
+                      paddingBottom: 1,
+                      caretColor: 'var(--node-factual)',
+                    }}
+                  />
+                ) : (
+                  <span style={{
+                    fontSize: 13,
+                    fontFamily: 'inherit',
+                    fontWeight: isSelected ? 500 : 400,
+                    color: isSelected ? 'var(--text)' : isHovered ? 'var(--text)' : 'var(--text-muted)',
+                    opacity: isCollapsed ? 0 : 1,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    transition: 'opacity 250ms cubic-bezier(0,0,0.2,1), color 0.15s cubic-bezier(0,0,0.2,1)',
+                  }}>
+                    {tree.title}
+                  </span>
+                )}
               </button>
 
-              {/* Delete button — fades in on hover, hidden when collapsed */}
-              {!isCollapsed && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: tree.id, title: tree.title }) }}
-                  style={{
-                    all: 'unset',
-                    cursor: 'pointer',
-                    flexShrink: 0,
-                    width: 36,
-                    height: '100%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: 20,
-                    lineHeight: 1,
-                    color: 'var(--text-muted)',
-                    opacity: isHovered ? 1 : 0,
-                    transition: 'opacity 0.15s cubic-bezier(0,0,0.2,1), color 0.15s cubic-bezier(0,0,0.2,1)',
-                  }}
-                  onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--node-practical)')}
-                  onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
-                >
-                  ×
-                </button>
+              {/* Three-dot menu button — fades in on hover, hidden when collapsed or renaming */}
+              {!isCollapsed && !isRenaming && (
+                <div style={{ position: 'relative', flexShrink: 0 }} ref={isMenuOpen ? menuRef : null}>
+                  <button
+                    onClick={(e) => openMenu(e, tree)}
+                    style={{
+                      all: 'unset',
+                      cursor: 'pointer',
+                      width: 36,
+                      height: 36,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: 16,
+                      letterSpacing: '0.05em',
+                      color: isMenuOpen ? 'var(--text)' : 'var(--text-muted)',
+                      opacity: isHovered || isMenuOpen ? 1 : 0,
+                      transition: 'opacity 0.15s cubic-bezier(0,0,0.2,1), color 0.15s cubic-bezier(0,0,0.2,1)',
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--text)')}
+                    onMouseLeave={(e) => {
+                      if (!isMenuOpen) e.currentTarget.style.color = 'var(--text-muted)'
+                    }}
+                  >
+                    ⋮
+                  </button>
+
+                  {/* Dropdown */}
+                  {isMenuOpen && (
+                    <div style={{
+                      position: 'absolute',
+                      top: '100%',
+                      right: 0,
+                      zIndex: 200,
+                      minWidth: 120,
+                      background: 'var(--panel-bg)',
+                      backdropFilter: 'blur(24px) saturate(180%)',
+                      WebkitBackdropFilter: 'blur(24px) saturate(180%)',
+                      border: '1px solid var(--panel-border)',
+                      borderRadius: 10,
+                      boxShadow: 'var(--slab-shadow)',
+                      overflow: 'hidden',
+                      padding: '4px 0',
+                    }}>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          startRename(tree)
+                        }}
+                        style={{
+                          all: 'unset',
+                          cursor: 'pointer',
+                          display: 'block',
+                          width: '100%',
+                          padding: '8px 14px',
+                          fontSize: 13,
+                          fontFamily: 'inherit',
+                          color: 'var(--text)',
+                          boxSizing: 'border-box',
+                          transition: 'background 0.1s ease-out',
+                        }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--surface)')}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                      >
+                        Rename
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setMenuOpenId(null)
+                          setDeleteTarget({ id: tree.id, title: tree.title })
+                        }}
+                        style={{
+                          all: 'unset',
+                          cursor: 'pointer',
+                          display: 'block',
+                          width: '100%',
+                          padding: '8px 14px',
+                          fontSize: 13,
+                          fontFamily: 'inherit',
+                          color: 'var(--node-practical)',
+                          boxSizing: 'border-box',
+                          transition: 'background 0.1s ease-out',
+                        }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,45,85,0.08)')}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           )
@@ -301,7 +453,7 @@ export default function LeftPanel() {
             onMouseEnter={(e) => {
               e.currentTarget.style.color = 'var(--node-factual)'
               e.currentTarget.style.borderColor = 'var(--node-factual)'
-              e.currentTarget.style.background = 'rgba(123,158,255,0.06)'
+              e.currentTarget.style.background = 'rgba(76,217,100,0.06)'
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.color = 'var(--text-muted)'
@@ -310,7 +462,7 @@ export default function LeftPanel() {
             }}
           >
             <span style={{ fontSize: 16, fontWeight: 300, lineHeight: 1 }}>+</span>
-            New Tree
+            New Topic
           </button>
         </div>
       )}
@@ -518,8 +670,8 @@ export default function LeftPanel() {
                   cursor: 'pointer',
                   padding: '9px 16px',
                   borderRadius: 8,
-                  background: 'rgba(244,185,122,0.12)',
-                  border: '1px solid rgba(244,185,122,0.3)',
+                  background: 'rgba(255,45,85,0.10)',
+                  border: '1px solid rgba(255,45,85,0.28)',
                   fontSize: 14,
                   fontFamily: 'inherit',
                   fontWeight: 600,

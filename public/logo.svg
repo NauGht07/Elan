@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <style>
+      @import url('https://api.fontshare.com/v2/css?f[]=sentient@400&amp;display=swap');
+    </style>
+    <pattern id="paperPattern" patternUnits="userSpaceOnUse" width="512" height="512">
+      <image href="paper-texture.png" x="0" y="0" width="512" height="512" preserveAspectRatio="xMidYMid slice"/>
+    </pattern>
+  </defs>
+
+  <!-- Paper texture background -->
+  <rect width="512" height="512" fill="url(#paperPattern)"/>
+
+  <!-- Warm cream overlay -->
+  <rect width="512" height="512" fill="rgba(240,224,200,0.82)"/>
+
+  <!-- Lowercase "e", centered and rotated 45 degrees -->
+  <text
+    x="256"
+    y="256"
+    font-family="Sentient, Georgia, serif"
+    font-size="320"
+    fill="#0D1A2E"
+    text-anchor="middle"
+    dominant-baseline="central"
+    transform="rotate(45, 256, 256)"
+  >e</text>
+</svg>
