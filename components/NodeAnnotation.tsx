@@ -6,6 +6,7 @@ import { Milkdown, MilkdownProvider, useEditor } from '@milkdown/react'
 import { commonmark } from '@milkdown/preset-commonmark'
 import { gfm } from '@milkdown/preset-gfm'
 import { listener, listenerCtx } from '@milkdown/plugin-listener'
+import { linkInputRule } from '@/lib/milkdown-plugins'
 import { createBrowserClient } from '@/lib/supabase-browser'
 import { useStore } from '@/lib/store'
 import type { Annotation } from '@/types'
@@ -31,11 +32,23 @@ function AnnotationEditorInner({ defaultValue, onChange }: EditorProps) {
       })
       .use(commonmark)
       .use(gfm)
+      .use(linkInputRule)
       .use(listener)
   )
 
   function handleClick(e: React.MouseEvent<HTMLDivElement>) {
     const target = e.target as Element
+
+    // Links live inside contenteditable, so the browser won't navigate them on
+    // click — open them ourselves.
+    const anchor = target.closest('a[href]')
+    if (anchor) {
+      e.preventDefault()
+      const href = anchor.getAttribute('href')
+      if (href) window.open(href, '_blank', 'noopener,noreferrer')
+      return
+    }
+
     const li = target.closest('li[data-item-type="task"]')
     if (!li) return
     const rect = li.getBoundingClientRect()

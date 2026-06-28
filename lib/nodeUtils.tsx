@@ -41,6 +41,7 @@ export function CustomLink({ href, children }: { href?: string; children?: React
       href={href}
       target="_blank"
       rel="noopener noreferrer"
+      data-citation={isCitation ? '' : undefined}
       style={{
         color: 'var(--node-factual)',
         textDecoration: 'none',

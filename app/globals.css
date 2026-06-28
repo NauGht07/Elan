@@ -189,6 +189,11 @@ body {
 .annotation-editor .editor h3 { font-size: 15px; font-weight: 600; margin: 1em 0 0.3em; color: var(--text); }
 .annotation-editor .editor strong { font-weight: 600; }
 .annotation-editor .editor em { font-style: italic; }
+.annotation-editor a {
+  color: var(--node-factual);
+  text-decoration: underline;
+  cursor: pointer;
+}
 .annotation-editor .editor code {
   background: var(--surface);
   border: 1px solid var(--surface-border);

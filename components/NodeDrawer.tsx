@@ -8,6 +8,7 @@ import { createBrowserClient } from '@/lib/supabase-browser'
 import { typeHex, typeLabel, TypeBadge, CustomLink } from '@/lib/nodeUtils'
 import ChatPanel from '@/components/ChatPanel'
 import NodeAnnotation from '@/components/NodeAnnotation'
+import CitationHoverCard from '@/components/CitationHoverCard'
 import type { ElanNode, Suggestion, NodeType, NodeChat, Interpretation, AncestorContext } from '@/types'
 
 // ─── NodeDrawer ───────────────────────────────────────────────────────────────
@@ -38,6 +39,7 @@ export default function NodeDrawer() {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const [pickerPos, setPickerPos] = useState<{ top: number; left: number } | null>(null)
   const emojiBtnRef = useRef<HTMLButtonElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
 
   function addChatMessage(msg: Pick<NodeChat, 'role' | 'message'>) {
     setChatMessages((prev) => [...prev, {
@@ -468,7 +470,7 @@ export default function NodeDrawer() {
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
 
         {/* Content column */}
-        <div style={{
+        <div ref={contentRef} style={{
           flex: 1,
           minWidth: 0,
           overflowY: 'auto',
@@ -864,6 +866,8 @@ export default function NodeDrawer() {
 
               {/* Annotation editor */}
               <NodeAnnotation key={node.id} nodeId={node.id} />
+
+              <CitationHoverCard sources={node.sources} containerRef={contentRef} />
             </>
           )}
         </div>
